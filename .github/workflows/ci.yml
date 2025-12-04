@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, premium ]
+  pull_request:
+    branches: [ main, premium ]
+
+jobs:
+  backend-lint:
+    name: Backend lint & smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install backend deps
+        working-directory: backend/functions
+        run: |
+          npm ci
+
+      - name: Lint backend
+        working-directory: backend/functions
+        run: |
+          npm run lint
+
+  flutter-analyze-test:
+    name: Flutter analyze & test
+    runs-on: ubuntu-latest
+    needs: backend-lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+
+      - name: Cache pub
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('frontend/pubspec.yaml') }}
+
+      - name: Install Flutter deps
+        working-directory: frontend
+        run: |
+          flutter pub get
+
+      - name: Analyze
+        working-directory: frontend
+        run: |
+          flutter analyze
+
+      - name: Run unit/widget tests
+        working-directory: frontend
+        run: |
+          flutter test --coverage

@@ -1,0 +1,54 @@
+# Flutter / Dart
+/build/
+**/build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+pubspec.lock
+
+# iOS
+ios/Pods/
+ios/Runner.xcworkspace
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+
+# Android
+**/gradle-wrapper.properties
+android/.gradle/
+android/app/build/
+android/build/
+
+# Local signing files (do not commit)
+**/key.properties
+**/*.keystore
+
+# Node
+node_modules/
+
+# Firebase emulators / local state
+.firebase/
+.firebase_local/
+.firebase-debug.log
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Zip archives (source assets, not needed in repo)
+**/*.zip
+
+# Generated iOS assets (keep originals in assets/ only)
+frontend/assets/logo/Assets.xcassets/
+
+# Android generated assets folder (keep original logos)
+frontend/assets/logo/android/

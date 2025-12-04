@@ -1,0 +1,1794 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../services/api.dart';
+import '../../services/completion_store.dart';
+import '../../services/local_cache.dart';
+import '../../services/wellness_activity_service.dart';
+import '../../services/progress_calculator_service.dart';
+import '../../config/api.dart' as cfg;
+import '../../theme/app_theme.dart';
+import 'progress_refresh_notifier.dart';
+import 'package:provider/provider.dart';
+
+
+class ActivityPage extends StatefulWidget {
+  const ActivityPage({super.key});
+
+  @override
+  State<ActivityPage> createState() => _ActivityPageState();
+}
+
+class _ActivityPageState extends State<ActivityPage> {
+  int _happiness = 5;
+  List<Map<String, dynamic>> _activities = [];
+  final Map<String, bool> _completedCache = {};
+  bool _happinessSubmitting = false;
+  bool _activitiesLoading = false;
+  String? _activitiesError;
+  String? _wellnessProfile;
+  String? _selectedTimeSlot; // Currently selected time slot filter
+  
+  // Progress tracking
+  int _completedCount = 0;
+  int _expectedCount = 0;
+  int _completionPercent = 0;
+  StreamSubscription<Map<String, dynamic>>? _progressSub;
+  
+  // Theme-aware color getters
+  Color get primaryColor => AppColors.primary;
+  Color get backgroundLight => AppColors.backgroundLight;
+  Color get backgroundDark => AppColors.backgroundDark;
+
+  Widget activityCard(Map<String, dynamic> activity) {
+    final title = activity['title'] ?? activity['id'] ?? 'Activity';
+    final subtitle = activity['subtitle'] ?? activity['description'] ?? '';
+    final iconName = activity['icon'] as String?;
+    IconData icon = Icons.nature_people;
+    if (iconName != null) {
+      switch (iconName) {
+        case 'favorite':
+          icon = Icons.favorite;
+          break;
+        case 'fitness_center':
+          icon = Icons.fitness_center;
+          break;
+        case 'restaurant':
+          icon = Icons.restaurant;
+          break;
+        case 'self_improvement':
+          icon = Icons.self_improvement;
+          break;
+        case 'work':
+          icon = Icons.work;
+          break;
+        case 'people':
+          icon = Icons.people;
+          break;
+        case 'spa':
+          icon = Icons.spa;
+          break;
+        case 'bedtime':
+          icon = Icons.bedtime;
+          break;
+        case 'school':
+          icon = Icons.school;
+          break;
+        case 'palette':
+          icon = Icons.palette;
+          break;
+        case 'psychology':
+          icon = Icons.psychology;
+          break;
+        case 'park':
+          icon = Icons.park;
+          break;
+        case 'shower':
+          icon = Icons.shower;
+          break;
+        case 'grass':
+          icon = Icons.grass;
+          break;
+        case 'travel_explore':
+          icon = Icons.travel_explore;
+          break;
+        case 'lightbulb':
+          icon = Icons.lightbulb_outline;
+          break;
+        case 'directions_bike':
+          icon = Icons.directions_bike;
+          break;
+        case 'shopping_bag':
+          icon = Icons.shopping_bag_outlined;
+          break;
+        case 'water_drop':
+          icon = Icons.water_drop_outlined;
+          break;
+        default:
+          icon = Icons.nature_people;
+      }
+    }
+    
+    final activityId = activity['id'] ?? title.toLowerCase().replaceAll(' ', '_');
+    final completed = _completedCache[activityId] ?? false;
+
+    Widget actionButton;
+    if (completed) {
+      actionButton = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.green.shade200),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check_circle, color: Colors.green.shade700, size: 18),
+            const SizedBox(width: 6),
+            Text(
+              "Done",
+              style: GoogleFonts.manrope(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: Colors.green.shade700,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      actionButton = ElevatedButton(
+        onPressed: () async {
+          final api = ApiService(baseUrl: cfg.apiBaseUrl);
+          final messengerBefore = ScaffoldMessenger.maybeOf(context);
+          final notifierBefore = Provider.of<ProgressRefreshNotifier>(context, listen: false);
+          
+          // Show immediate feedback
+          setState(() {
+            _completedCache[activityId] = true;
+          });
+          
+          try {
+            final now = DateTime.now();
+            final localDate = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+            // Debug log for troubleshooting
+            debugPrint('[Activity] Completing activity: $activityId on $localDate');
+            
+            await api.completeActivity(activityId, {
+              'date': now.toIso8601String(),
+              'localDate': localDate,
+              'weight': activity['weight'] ?? 10, // Wellness activities use weight 10
+              'isWellnessActivity': activity['isWellnessActivity'] ?? false,
+            }).timeout(const Duration(seconds: 15));
+            
+            await CompletionStore.markCompleted(activityId);
+            RecentDataStore.recordActivityComplete(100, DateTime.now());
+            
+            if (!mounted) return;
+            messengerBefore?.showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.check_circle, color: Colors.white),
+                    const SizedBox(width: 12),
+                    Text('Activity completed successfully'),
+                  ],
+                ),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+            notifierBefore.triggerRefresh();
+          } catch (e) {
+            final errorStr = e.toString();
+            debugPrint('[Activity] Error completing activity: $errorStr');
+            
+            // Check if it's "already_completed" - this is actually success (edge case from prior completion)
+            if (errorStr.contains('already_completed') || errorStr.contains('409')) {
+              // Activity was already completed, just mark as done locally
+              await CompletionStore.markCompleted(activityId);
+              if (!mounted) return;
+              messengerBefore?.showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(Icons.check_circle, color: Colors.white),
+                      const SizedBox(width: 12),
+                      Text('Activity already completed today!'),
+                    ],
+                  ),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+              return;
+            }
+            
+            // Revert optimistic update on actual error
+            if (mounted) {
+              setState(() {
+                _completedCache[activityId] = false;
+              });
+            }
+            
+            String userMessage = 'Could not complete activity';
+            if (errorStr.contains('TimeoutException')) {
+              userMessage = 'Request timed out. Please check your internet connection';
+            } else if (errorStr.contains('SocketException')) {
+              userMessage = 'No internet connection. Please try again';
+            } else if (errorStr.contains('FormatException')) {
+              userMessage = 'Server error. Please try again later';
+            } else if (errorStr.contains('401') || errorStr.contains('Unauthorized')) {
+              userMessage = 'Session expired. Please sign in again';
+            } else if (errorStr.contains('500')) {
+              userMessage = 'Server error. Please try again later';
+            }
+            
+            if (!mounted) return;
+            messengerBefore?.showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.white),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text(userMessage)),
+                  ],
+                ),
+                backgroundColor: Colors.red.shade600,
+                duration: const Duration(seconds: 4),
+                action: SnackBarAction(
+                  label: 'Retry',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    // User can pull down to refresh or tap the activity complete button again
+                    _loadActivities();
+                  },
+                ),
+              ),
+            );
+          }
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primaryColor,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "Complete",
+              style: GoogleFonts.manrope(
+                fontWeight: FontWeight.w700,
+                fontSize: 12.5,
+                letterSpacing: 0.2,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.check_circle, size: 14),
+          ],
+        ),
+      );
+    }
+
+    // Calculate eco impact for this activity
+    final ecoImpact = activity['ecoImpact'] ?? (activity['weight'] ?? 10) * 0.05;
+    final category = activity['category'] as String?;
+    final categoryColor = _getCategoryColor(category);
+
+    return Card(
+      elevation: completed ? 1 : 3,
+      shadowColor: completed ? Colors.transparent : categoryColor.withAlpha(40),
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: completed 
+            ? LinearGradient(
+                colors: [
+                  Colors.green.shade50,
+                  Colors.green.shade50.withAlpha(100),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : null,
+          border: Border.all(
+            color: completed ? Colors.green.shade200 : Colors.transparent,
+            width: completed ? 1.5 : 0,
+          ),
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Icon with nature-inspired design
+                Container(
+                  height: 56,
+                  width: 56,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: completed 
+                        ? [Colors.green.shade100, Colors.green.shade50]
+                        : [categoryColor.withAlpha(40), categoryColor.withAlpha(20)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: completed ? null : [
+                      BoxShadow(
+                        color: categoryColor.withAlpha(30),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Stack(
+                    children: [
+                      Center(child: Icon(icon, color: completed ? Colors.green.shade700 : categoryColor, size: 28)),
+                      if (completed)
+                        Positioned(
+                          right: -2,
+                          top: -2,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(Icons.check_circle, color: Colors.green.shade600, size: 18),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: GoogleFonts.manrope(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                                height: 1.3,
+                                letterSpacing: -0.2,
+                                decoration: completed ? TextDecoration.lineThrough : null,
+                                decorationColor: Colors.green.shade400,
+                                color: completed ? Colors.grey.shade600 : null,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          // Eco impact badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: primaryColor.withAlpha(20),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.eco, size: 12, color: primaryColor),
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${ecoImpact.toStringAsFixed(1)} kg',
+                                  style: GoogleFonts.manrope(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: primaryColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: GoogleFonts.manrope(
+                          fontSize: 12.5,
+                          color: Colors.grey[600],
+                          height: 1.3,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      // Show info icon for wellness activities with detailed information
+                      if (activity['isWellnessActivity'] == true &&
+                          (activity['description'] != null ||
+                              activity['tips'] != null ||
+                              activity['youtubeUrl'] != null))
+                        GestureDetector(
+                          onTap: () => _showActivityInfo(context, activity),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: primaryColor.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  color: primaryColor,
+                                  size: 14,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Details',
+                                  style: GoogleFonts.manrope(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: primaryColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      const Spacer(),
+                      // action button (cached) inserted here
+                      actionButton,
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        ],
+      ),
+      ),
+    );
+  }
+
+  /// Show detailed activity information in a modal bottom sheet
+  void _showActivityInfo(BuildContext context, Map<String, dynamic> activity) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final title = activity['title'] ?? 'Activity';
+    final description = activity['description'];
+    final tips = activity['tips'] as List<dynamic>?;
+    final youtubeUrl = activity['youtubeUrl'] as String?;
+    final category = activity['category'] as String?;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.75,
+        decoration: BoxDecoration(
+          color: isDark ? Colors.grey[900] : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // Handle bar
+            Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[400],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Title with category icon
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _getCategoryColor(category).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            _getCategoryIconData(activity['icon']),
+                            color: _getCategoryColor(category),
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: GoogleFonts.manrope(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black87,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    
+                    // Description
+                    if (description != null) ...[
+                      const SizedBox(height: 24),
+                      Text(
+                        'Why This Matters',
+                        style: GoogleFonts.manrope(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        description,
+                        style: GoogleFonts.manrope(
+                          fontSize: 14,
+                          height: 1.6,
+                          color: isDark ? Colors.white70 : Colors.black87,
+                        ),
+                      ),
+                    ],
+                    
+                    // Tips
+                    if (tips != null && tips.isNotEmpty) ...[
+                      const SizedBox(height: 24),
+                      Text(
+                        'Quick Tips',
+                        style: GoogleFonts.manrope(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ...tips.map((tip) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  margin: const EdgeInsets.only(top: 6),
+                                  width: 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: _getCategoryColor(category),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    tip.toString(),
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 14,
+                                      color: isDark ? Colors.white70 : Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )),
+                    ],
+                    
+                    // YouTube button
+                    if (youtubeUrl != null) ...[
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _launchURL(youtubeUrl),
+                          icon: const Icon(Icons.play_circle_outline, size: 20),
+                          label: Text(
+                            'Learn More on YouTube',
+                            style: GoogleFonts.manrope(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF0000),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Get category color
+  Color _getCategoryColor(String? category) {
+    switch (category) {
+      case 'health':
+        return const Color(0xFFE91E63);
+      case 'fitness':
+        return const Color(0xFF2196F3);
+      case 'nutrition':
+        return const Color(0xFFFF9800);
+      case 'mindfulness':
+        return const Color(0xFF9C27B0);
+      case 'nature':
+        return const Color(0xFF4CAF50);
+      case 'productivity':
+        return const Color(0xFF607D8B);
+      case 'social':
+        return const Color(0xFFFF5722);
+      case 'relaxation':
+        return const Color(0xFF00BCD4);
+      default:
+        return primaryColor;
+    }
+  }
+
+  /// Get IconData from icon name
+  IconData _getCategoryIconData(String? iconName) {
+    switch (iconName) {
+      case 'favorite':
+        return Icons.favorite;
+      case 'fitness_center':
+        return Icons.fitness_center;
+      case 'restaurant':
+        return Icons.restaurant;
+      case 'self_improvement':
+        return Icons.self_improvement;
+      case 'work':
+        return Icons.work;
+      case 'people':
+        return Icons.people;
+      case 'spa':
+        return Icons.spa;
+      case 'park':
+        return Icons.park;
+      case 'bedtime':
+        return Icons.bedtime;
+      case 'book':
+        return Icons.book;
+      case 'volunteer_activism':
+        return Icons.volunteer_activism;
+      default:
+        return Icons.nature_people;
+    }
+  }
+
+  /// Build time slot tabs for filtering
+  Widget _buildTimeSlotTabs() {
+    if (_activities.isEmpty) return const SizedBox.shrink();
+
+    // Get all unique time slots from activities
+    final timeSlots = <String>{};
+    for (final activity in _activities) {
+      final timeSlot = activity['timeSlot'] as String?;
+      if (timeSlot != null && timeSlot.isNotEmpty) {
+        timeSlots.add(timeSlot);
+      }
+    }
+
+    if (timeSlots.isEmpty) return const SizedBox.shrink();
+
+    // Sort time slots by order
+    final sortedTimeSlots = timeSlots.toList()
+      ..sort((a, b) {
+        final aActivity = _activities.firstWhere((act) => act['timeSlot'] == a);
+        final bActivity = _activities.firstWhere((act) => act['timeSlot'] == b);
+        final aOrder = aActivity['timeSlotOrder'] as int? ?? 999;
+        final bOrder = bActivity['timeSlotOrder'] as int? ?? 999;
+        return aOrder.compareTo(bOrder);
+      });
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: sortedTimeSlots.map((timeSlot) {
+            final isSelected = _selectedTimeSlot == timeSlot;
+            final currentTimeSlot = WellnessActivityService.getCurrentTimeSlot();
+            final isCurrent = timeSlot.toLowerCase().contains(currentTimeSlot.toLowerCase());
+            
+            // Extract short name (e.g., "Morning" from "Morning (6am-9am)")
+            final shortName = timeSlot.split('(').first.trim();
+            
+            return Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: InkWell(
+                onTap: () {
+                  setState(() {
+                    _selectedTimeSlot = timeSlot;
+                  });
+                },
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    gradient: isSelected
+                        ? LinearGradient(
+                            colors: [primaryColor, primaryColor.withOpacity(0.85)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                        : null,
+                    color: isSelected ? null : Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isSelected 
+                          ? primaryColor 
+                          : (isCurrent ? primaryColor.withOpacity(0.35) : Colors.grey.shade300),
+                      width: isSelected ? 1.5 : 1,
+                    ),
+                    boxShadow: isSelected
+                        ? [
+                            BoxShadow(
+                              color: primaryColor.withOpacity(0.25),
+                              blurRadius: 6,
+                              offset: const Offset(0, 3),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (isCurrent && !isSelected) ...[
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: primaryColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      Text(
+                        shortName,
+                        style: GoogleFonts.manrope(
+                          fontSize: 13.5,
+                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                          color: isSelected 
+                              ? Colors.white 
+                              : (isCurrent ? primaryColor : Colors.grey.shade700),
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  /// Launch URL
+  Future<void> _launchURL(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open link'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      backgroundColor: isDark ? backgroundDark : backgroundLight,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [primaryColor.withAlpha(30), primaryColor.withAlpha(15)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.eco, color: primaryColor, size: 22),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              "Eco Activities",
+              style: GoogleFonts.manrope(
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+                color: primaryColor,
+                letterSpacing: -0.5,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(
+              Icons.refresh,
+              color: _activitiesLoading ? Colors.grey : primaryColor,
+              size: 22,
+            ),
+            tooltip: 'Refresh Activities',
+            onPressed: _activitiesLoading ? null : _loadActivities,
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _loadActivities,
+          color: primaryColor,
+          child: ListView(
+            padding: const EdgeInsets.all(18),
+            children: [
+              // Today's Progress Card
+              _buildProgressCard(),
+              const SizedBox(height: 16),
+              
+              // Happiness Tracker Card (Nature-themed)
+              Card(
+                elevation: 3,
+                shadowColor: primaryColor.withAlpha(30),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.spa, size: 16, color: primaryColor),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      "Wellness Check",
+                                      style: GoogleFonts.manrope(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 15,
+                                        color: primaryColor,
+                                        letterSpacing: -0.2,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  "How's your inner garden today?",
+                                  style: GoogleFonts.manrope(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  primaryColor.withAlpha(40),
+                                  primaryColor.withAlpha(20),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: primaryColor.withAlpha(50)),
+                            ),
+                            child: Row(
+                              children: [
+                                Text(
+                                  _getHappinessEmoji(_happiness),
+                                  style: const TextStyle(fontSize: 24),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  "$_happiness",
+                                  style: GoogleFonts.manrope(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 20,
+                                    color: primaryColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Slider(
+                        min: 1,
+                        max: 10,
+                        value: _happiness.toDouble(),
+                        activeColor: primaryColor,
+                        inactiveColor: Colors.grey.shade200,
+                        onChanged: (value) {
+                          setState(() {
+                            _happiness = value.toInt();
+                          });
+                        },
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            "🥀 Wilting",
+                            style: GoogleFonts.manrope(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          Text(
+                            "🌳 Flourishing",
+                            style: GoogleFonts.manrope(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: _happinessSubmitting
+                                ? null
+                                : () async {
+                                    setState(() {
+                                      _happinessSubmitting = true;
+                                    });
+                                    final api = ApiService(baseUrl: cfg.apiBaseUrl);
+                                    final messengerBefore = ScaffoldMessenger.maybeOf(context);
+                                    final notifierBefore = Provider.of<ProgressRefreshNotifier>(context, listen: false);
+                                    try {
+                                      await api.postHappiness(_happiness).timeout(const Duration(seconds: 10));
+                                      if (!mounted) return;
+                                      messengerBefore?.showSnackBar(
+                                        SnackBar(
+                                          content: Row(
+                                          children: [
+                                            const Icon(Icons.favorite, color: Colors.white),
+                                            const SizedBox(width: 12),
+                                            Text('Thank you for sharing! Keep up the positivity 💚'),
+                                          ],
+                                        ),
+                                        backgroundColor: primaryColor,
+                                        duration: const Duration(seconds: 2),
+                                      ),
+                                    );
+                                    notifierBefore.triggerRefresh();
+                                  } catch (e) {
+                                    String userMessage = 'Could not save happiness level';
+                                    if (e.toString().contains('TimeoutException')) {
+                                      userMessage = 'Request timed out. Please check your connection';
+                                    } else if (e.toString().contains('SocketException')) {
+                                      userMessage = 'No internet. Your happiness level will be saved when you\'re back online';
+                                    }
+                                    
+                                    if (!mounted) return;
+                                    messengerBefore?.showSnackBar(
+                                      SnackBar(
+                                        content: Row(
+                                          children: [
+                                            const Icon(Icons.warning_amber, color: Colors.white),
+                                            const SizedBox(width: 12),
+                                            Expanded(child: Text(userMessage)),
+                                          ],
+                                        ),
+                                        backgroundColor: Colors.orange.shade600,
+                                        duration: const Duration(seconds: 4),
+                                      ),
+                                    );
+                                  } finally {
+                                    if (mounted) {
+                                      setState(() {
+                                        _happinessSubmitting = false;
+                                      });
+                                    }
+                                  }
+                                },
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [AppColors.primaryLight, AppColors.primary],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(14),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: primaryColor.withAlpha(60),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Center(
+                                child: _happinessSubmitting
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                      )
+                                    : Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          const Icon(Icons.spa, color: Colors.white, size: 18),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Log Wellness',
+                                            style: GoogleFonts.manrope(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 14,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // Time Slot Tabs
+              _buildTimeSlotTabs(),
+              
+              // Activities Section Header with personalized greeting
+              Padding(
+                padding: const EdgeInsets.only(top: 4, bottom: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_wellnessProfile != null) ...[
+                            // Personalized greeting
+                            Text(
+                              'Your Daily Activities',
+                              style: GoogleFonts.manrope(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: primaryColor,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'Based on your $_wellnessProfile lifestyle',
+                              style: GoogleFonts.manrope(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ] else ...[
+                            // Default header
+                            Text(
+                              'Daily Activities',
+                              style: GoogleFonts.manrope(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: primaryColor,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (_activitiesLoading)
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                  ],
+                ),
+              ),
+              
+              // Error State
+              if (_activitiesError != null)
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      children: [
+                        Icon(Icons.cloud_off, size: 64, color: Colors.grey.shade400),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Unable to load activities',
+                          style: GoogleFonts.manrope(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _activitiesError!,
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.manrope(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: _loadActivities,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Try Again'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              // Empty State
+              else if (_activities.isEmpty && !_activitiesLoading)
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      children: [
+                        Icon(Icons.eco, size: 64, color: primaryColor.withAlpha((0.5 * 255).round())),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No activities available',
+                          style: GoogleFonts.manrope(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Check back later for new eco-friendly activities!',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.manrope(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              // Activities List - Grouped by Time Slot
+              else
+                ..._buildGroupedActivities(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Build activities grouped by time slot
+  List<Widget> _buildGroupedActivities() {
+    if (_activities.isEmpty) return [];
+
+    // Check if activities have time slot information
+    final hasTimeSlots = _activities.any((a) => a.containsKey('timeSlot'));
+
+    if (!hasTimeSlots) {
+      // No time slots - display as flat list (for non-wellness activities)
+      return _activities.map((a) => activityCard(a)).toList();
+    }
+
+    // Filter activities by selected time slot
+    final filteredActivities = _selectedTimeSlot != null
+        ? _activities.where((a) => a['timeSlot'] == _selectedTimeSlot).toList()
+        : _activities;
+
+    if (filteredActivities.isEmpty) return [];
+
+    final widgets = <Widget>[];
+    
+    // Get time slot info
+    final timeSlot = _selectedTimeSlot ?? 'Activities';
+    final currentTimeSlot = WellnessActivityService.getCurrentTimeSlot();
+    final isCurrentSlot = timeSlot.toLowerCase().contains(currentTimeSlot.toLowerCase());
+    final timeSlotDescription = _getTimeSlotDescription(timeSlot);
+    
+    // Time slot header with description
+    widgets.add(
+      Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: isCurrentSlot 
+                          ? [primaryColor.withOpacity(0.18), primaryColor.withOpacity(0.08)]
+                          : [Colors.grey.shade100, Colors.grey.shade50],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isCurrentSlot ? primaryColor : Colors.grey.shade300,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isCurrentSlot ? Icons.access_time_filled : Icons.access_time,
+                        size: 16,
+                        color: isCurrentSlot ? primaryColor : Colors.grey.shade600,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        timeSlot,
+                        style: GoogleFonts.manrope(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: isCurrentSlot ? primaryColor : Colors.grey.shade700,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      if (isCurrentSlot) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: primaryColor,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'NOW',
+                            style: GoogleFonts.manrope(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            // Time slot description
+            if (timeSlotDescription != null) ...[
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 2),
+                child: Text(
+                  timeSlotDescription,
+                  style: GoogleFonts.manrope(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                    color: isCurrentSlot ? primaryColor.withOpacity(0.85) : Colors.grey.shade600,
+                    height: 1.4,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    // Add all activities for selected time slot
+    for (final activity in filteredActivities) {
+      widgets.add(activityCard(activity));
+    }
+
+    return widgets;
+  }
+  
+  /// Get description for time slot to show purpose
+  String? _getTimeSlotDescription(String timeSlot) {
+    final lowerSlot = timeSlot.toLowerCase();
+    
+    if (lowerSlot.contains('morning')) {
+      return '🌅 Start your day with energy and intention';
+    } else if (lowerSlot.contains('mid-day') || lowerSlot.contains('midday')) {
+      return '☀️ Sustain productivity and well-being';
+    } else if (lowerSlot.contains('afternoon')) {
+      return '🌤️ Restore energy and creativity';
+    } else if (lowerSlot.contains('evening')) {
+      return '🌙 Prepare for restful sleep';
+    } else if (lowerSlot.contains('weekend')) {
+      return '🎉 Enjoy nature and recreation';
+    }
+    return null;
+  }
+  
+  String _getHappinessEmoji(int level) {
+    // Nature-themed wellness emojis
+    if (level <= 2) return '🥀';  // Wilted flower
+    if (level <= 4) return '🍂';  // Fallen leaf
+    if (level <= 6) return '🌱';  // Seedling
+    if (level <= 8) return '🌿';  // Herb
+    return '🌳';  // Full tree
+  }
+
+  /// Build the progress card showing today's activity completion
+  Widget _buildProgressCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final progressPercent = _completionPercent / 100;
+    
+    // Calculate eco impact based on completed activities
+    final co2Saved = (_completedCount * 0.5).toStringAsFixed(1); // kg CO2 per activity
+    final treesEquivalent = (_completedCount * 0.02).toStringAsFixed(2); // tree absorption rate
+    
+    // Get emoji based on progress
+    String progressEmoji;
+    String progressMessage;
+    Color progressColor;
+    
+    if (_completionPercent >= 80) {
+      progressEmoji = '🌳';
+      progressMessage = 'Eco champion! You\'re making a real difference!';
+      progressColor = const Color(0xFF2E7D32);
+    } else if (_completionPercent >= 60) {
+      progressEmoji = '🌿';
+      progressMessage = 'Great green progress! Keep it up!';
+      progressColor = const Color(0xFF43A047);
+    } else if (_completionPercent >= 40) {
+      progressEmoji = '🌱';
+      progressMessage = 'Growing your eco impact!';
+      progressColor = primaryColor;
+    } else if (_completionPercent >= 20) {
+      progressEmoji = '🍃';
+      progressMessage = 'Every eco action matters!';
+      progressColor = const Color(0xFF66BB6A);
+    } else {
+      progressEmoji = '🌍';
+      progressMessage = 'Start making the planet greener!';
+      progressColor = const Color(0xFF81C784);
+    }
+    
+    return Card(
+      elevation: 4,
+      shadowColor: progressColor.withAlpha(60),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              progressColor.withAlpha(30),
+              progressColor.withAlpha(10),
+              isDark ? Colors.grey.shade900 : Colors.white,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            stops: const [0.0, 0.4, 1.0],
+          ),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: progressColor.withAlpha(40),
+            width: 1,
+          ),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [progressColor.withAlpha(50), progressColor.withAlpha(25)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: progressColor.withAlpha(30),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    progressEmoji,
+                    style: const TextStyle(fontSize: 32),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.eco, size: 14, color: progressColor),
+                          const SizedBox(width: 4),
+                          Text(
+                            "TODAY'S ECO IMPACT",
+                            style: GoogleFonts.manrope(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: progressColor,
+                              letterSpacing: 1.0,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '$_completedCount of $_expectedCount Activities',
+                        style: GoogleFonts.manrope(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: isDark ? Colors.white : Colors.black87,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [progressColor, progressColor.withAlpha(200)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: progressColor.withAlpha(80),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    '$_completionPercent%',
+                    style: GoogleFonts.manrope(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            
+            // Progress bar with leaf decoration
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: LinearProgressIndicator(
+                    value: progressPercent,
+                    minHeight: 12,
+                    backgroundColor: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+                    valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+                  ),
+                ),
+                if (progressPercent > 0.1)
+                  Positioned(
+                    left: (MediaQuery.of(context).size.width - 80) * progressPercent - 8,
+                    top: -2,
+                    child: Icon(Icons.eco, size: 16, color: Colors.white.withAlpha(200)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // Eco Impact Stats Row
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.grey.shade800.withAlpha(100) : Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildEcoStat(Icons.cloud_outlined, '$co2Saved kg', 'CO₂ Saved', progressColor),
+                  Container(width: 1, height: 30, color: Colors.grey.shade300),
+                  _buildEcoStat(Icons.park_outlined, treesEquivalent, 'Trees Equiv.', progressColor),
+                  Container(width: 1, height: 30, color: Colors.grey.shade300),
+                  _buildEcoStat(Icons.water_drop_outlined, '${_completedCount * 2}L', 'Water Saved', progressColor),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            
+            // Motivational message
+            Row(
+              children: [
+                Icon(Icons.tips_and_updates, size: 16, color: progressColor),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    progressMessage,
+                    style: GoogleFonts.manrope(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: progressColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildEcoStat(IconData icon, String value, String label, Color color) {
+    return Column(
+      children: [
+        Icon(icon, size: 20, color: color),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: GoogleFonts.manrope(
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: GoogleFonts.manrope(
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey.shade600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWellnessProfile();
+    _loadActivities();
+    _loadProgress();
+    _listenToProgress();
+  }
+
+  @override
+  void dispose() {
+    _progressSub?.cancel();
+    super.dispose();
+  }
+
+  /// Load current progress from service
+  Future<void> _loadProgress() async {
+    try {
+      final progress = await ProgressCalculatorService.getTodaysProgress();
+      if (mounted) {
+        setState(() {
+          _completedCount = progress['completedCount'] ?? 0;
+          _expectedCount = progress['expectedCount'] ?? 0;
+          _completionPercent = progress['completionPercent'] ?? 0;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading progress: $e');
+    }
+  }
+
+  /// Listen to real-time progress updates
+  void _listenToProgress() {
+    _progressSub = ProgressCalculatorService.progressStream().listen((progress) {
+      if (mounted) {
+        setState(() {
+          _completedCount = progress['completedCount'] ?? 0;
+          _expectedCount = progress['expectedCount'] ?? 0;
+          _completionPercent = progress['completionPercent'] ?? 0;
+        });
+      }
+    });
+  }
+
+  Future<void> _loadWellnessProfile() async {
+    final profile = await WellnessActivityService.getUserProfile();
+    if (mounted) {
+      setState(() {
+        _wellnessProfile = profile;
+      });
+    }
+  }
+
+  Future<void> _loadActivities() async {
+    if (!mounted) return;
+    
+    setState(() {
+      _activitiesLoading = true;
+      _activitiesError = null;
+    });
+    
+    try {
+      // First, check if user has wellness profile
+      final hasWellnessProfile = await WellnessActivityService.hasWellnessProfile();
+      
+      List<Map<String, dynamic>> activities;
+      
+      if (hasWellnessProfile) {
+        // Load ALL wellness activities for the entire day (not just current time slot)
+        activities = await WellnessActivityService.getAllDailyActivities();
+        
+        // If no wellness activities (shouldn't happen), fallback to API
+        if (activities.isEmpty) {
+          final api = ApiService(baseUrl: cfg.apiBaseUrl);
+          final list = await api.getActivities().timeout(
+            const Duration(seconds: 15),
+            onTimeout: () => throw TimeoutException('Request timed out'),
+          );
+          activities = List<Map<String, dynamic>>.from(
+            list.map((e) => Map<String, dynamic>.from(e as Map))
+          );
+        }
+      } else {
+        // No wellness profile - load regular activities from API
+        final api = ApiService(baseUrl: cfg.apiBaseUrl);
+        final list = await api.getActivities().timeout(
+          const Duration(seconds: 15),
+          onTimeout: () => throw TimeoutException('Request timed out'),
+        );
+        activities = List<Map<String, dynamic>>.from(
+          list.map((e) => Map<String, dynamic>.from(e as Map))
+        );
+      }
+      
+      _activities = activities;
+      
+      // Set initial selected time slot to current time slot if not already set
+      if (_selectedTimeSlot == null && activities.isNotEmpty) {
+        final currentSlot = WellnessActivityService.getCurrentTimeSlot();
+        // Find the first activity's time slot that matches current time
+        for (final activity in activities) {
+          final timeSlot = activity['timeSlot'] as String?;
+          if (timeSlot != null && timeSlot.toLowerCase().contains(currentSlot.toLowerCase())) {
+            _selectedTimeSlot = timeSlot;
+            break;
+          }
+        }
+        // If no match, default to first time slot
+        if (_selectedTimeSlot == null && activities.isNotEmpty) {
+          _selectedTimeSlot = activities.first['timeSlot'] as String?;
+        }
+      }
+      
+      // Load completion status for each activity from Firestore (source of truth)
+      // This ensures activities reset at midnight properly
+      final completedIds = await WellnessActivityService.getTodaysCompletedActivityIds();
+      
+      for (final a in _activities) {
+        final id = a['id'] ?? (a['title'] ?? '').toString().toLowerCase().replaceAll(' ', '_');
+        // Check Firestore first, then fall back to local cache
+        final isCompleted = completedIds.contains(id);
+        _completedCache[id] = isCompleted;
+        
+        // Sync local cache with Firestore
+        if (isCompleted) {
+          await CompletionStore.markCompleted(id);
+        }
+      }
+      
+      if (!mounted) return;
+      setState(() {
+        _activitiesLoading = false;
+        _activitiesError = null;
+      });
+    } on TimeoutException {
+      if (!mounted) return;
+      setState(() {
+        _activitiesLoading = false;
+        _activitiesError = 'Request timed out. Please check your internet connection and try again.';
+      });
+    } on SocketException {
+      if (!mounted) return;
+      setState(() {
+        _activitiesLoading = false;
+        _activitiesError = 'No internet connection. Please connect to the internet and try again.';
+      });
+    } on FormatException {
+      if (!mounted) return;
+      setState(() {
+        _activitiesLoading = false;
+        _activitiesError = 'Server returned unexpected data. Please try again later.';
+      });
+    } on HttpException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _activitiesLoading = false;
+        _activitiesError = 'Server error: ${e.message}. Please try again later.';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _activitiesLoading = false;
+        _activitiesError = 'Something went wrong. Please try again.';
+      });
+    }
+  }
+}

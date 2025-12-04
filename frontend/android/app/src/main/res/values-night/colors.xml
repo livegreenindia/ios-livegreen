@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#0F231C</color>
+    <color name="notification_color">#019863</color>
+    <color name="splash_background_dark">#0F231C</color>
+</resources>

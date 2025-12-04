@@ -1,0 +1,53 @@
+# Flutter / Dart
+/build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+pubspec.lock
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+**/Pods/
+
+# Android
+android/.gradle/
+android/app/build/
+android/build/
+**/gradle-wrapper.jar
+.gradle/
+
+# Local signing files (do not commit)
+**/key.properties
+**/*.keystore
+**/*.jks
+
+# Generated launcher icons
+android/app/src/main/res/mipmap-*/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+lcov.info
+
+# Generated assets (keep source only)
+assets/logo/Assets.xcassets/
+assets/logo/android/
+
+# Archives
+*.zip
+
+# Test outputs
+test-results/

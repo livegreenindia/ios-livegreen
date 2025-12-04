@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "762160532123",
+    "project_id": "livegreen-bf838",
+    "storage_bucket": "livegreen-bf838.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:762160532123:android:145eec1c15ad8198d1d43e",
+        "android_client_info": {
+          "package_name": "com.example.livegreen"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "762160532123-rvbpu96dt6n8df9u0ia6lf4hhncmhj5b.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.livegreen",
+            "certificate_hash": "a6efe756a6b33dac97009d855540f31bed7655f2"
+          }
+        },
+        {
+          "client_id": "762160532123-63kimarr4oik8vfvcjg1u9oujgjt91f9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBVP58lYJzfnjFGE-RKdSkrGgNJ3oMUncI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "762160532123-63kimarr4oik8vfvcjg1u9oujgjt91f9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "762160532123-dtu762qporvdaf06gejfkf628rhfiuel.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.livegreen"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

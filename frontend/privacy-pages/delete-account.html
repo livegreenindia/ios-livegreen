@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delete Account - LiveGreen</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background-color: #fff;
+            min-height: 100vh;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #d32f2f;
+        }
+        .logo {
+            width: 80px;
+            height: 80px;
+            background-color: #019863;
+            border-radius: 16px;
+            margin: 0 auto 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 32px;
+        }
+        h1 {
+            color: #d32f2f;
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+        .warning-box {
+            background-color: #ffebee;
+            border: 1px solid #ffcdd2;
+            border-left: 4px solid #d32f2f;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 24px 0;
+        }
+        .warning-box h3 {
+            color: #c62828;
+            margin-bottom: 8px;
+        }
+        .warning-box ul {
+            padding-left: 20px;
+            color: #b71c1c;
+        }
+        .info-box {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 24px 0;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: inherit;
+        }
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #019863;
+            box-shadow: 0 0 0 3px rgba(1, 152, 99, 0.1);
+        }
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin: 20px 0;
+        }
+        .checkbox-group input {
+            width: auto;
+            margin-top: 4px;
+        }
+        .btn {
+            display: inline-block;
+            padding: 14px 28px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .btn-danger {
+            background-color: #d32f2f;
+            color: white;
+        }
+        .btn-danger:hover {
+            background-color: #b71c1c;
+        }
+        .btn-danger:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .btn-secondary {
+            background-color: #e0e0e0;
+            color: #333;
+        }
+        .btn-secondary:hover {
+            background-color: #bdbdbd;
+        }
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            color: #666;
+            font-size: 14px;
+        }
+        .footer a {
+            color: #019863;
+        }
+        .success-message {
+            display: none;
+            background-color: #e8f5e9;
+            border: 1px solid #c8e6c9;
+            border-left: 4px solid #4caf50;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .success-message h2 {
+            color: #2e7d32;
+            margin-bottom: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">🌿</div>
+            <h1>🗑️ Delete Your Account</h1>
+            <p class="subtitle">LiveGreen Account & Data Deletion Request</p>
+        </div>
+
+        <div id="form-section">
+            <div class="warning-box">
+                <h3>⚠️ Warning: This action is permanent</h3>
+                <ul>
+                    <li>Your account will be permanently deleted</li>
+                    <li>All your activity and progress data will be removed</li>
+                    <li>Your wellness profile and settings will be erased</li>
+                    <li>Any active premium subscription will be cancelled</li>
+                    <li>This action cannot be undone</li>
+                </ul>
+            </div>
+
+            <div class="info-box">
+                <p><strong>📱 Easier option:</strong> You can also delete your account directly in the app by going to <strong>Profile → Settings → Delete Account</strong></p>
+            </div>
+
+            <form id="deleteForm" action="https://formsubmit.co/support@livegreen.app" method="POST">
+                <!-- FormSubmit configuration -->
+                <input type="hidden" name="_subject" value="Account Deletion Request - LiveGreen">
+                <input type="hidden" name="_captcha" value="false">
+                <input type="hidden" name="_template" value="table">
+                <input type="hidden" name="_next" value="https://livegreen-bf838.web.app/delete-account.html?success=true">
+                
+                <div class="form-group">
+                    <label for="email">Email Address (registered with LiveGreen) *</label>
+                    <input type="email" id="email" name="email" required placeholder="your@email.com">
+                </div>
+
+                <div class="form-group">
+                    <label for="name">Full Name *</label>
+                    <input type="text" id="name" name="name" required placeholder="Your name">
+                </div>
+
+                <div class="form-group">
+                    <label for="reason">Reason for leaving (optional)</label>
+                    <textarea id="reason" name="reason" placeholder="Help us improve - why are you deleting your account?"></textarea>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="confirm" name="confirmed" value="Yes, delete my account" required>
+                    <label for="confirm" style="font-weight: normal;">
+                        I understand that this action is <strong>permanent and irreversible</strong>. All my data will be deleted and cannot be recovered.
+                    </label>
+                </div>
+
+                <div class="btn-group">
+                    <button type="submit" class="btn btn-danger" id="submitBtn">
+                        🗑️ Delete My Account
+                    </button>
+                    <a href="index.html" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+
+        <div id="success-section" class="success-message">
+            <h2>✅ Request Submitted</h2>
+            <p>We have received your account deletion request.</p>
+            <p style="margin-top: 12px;">Your account and all associated data will be deleted within <strong>7 business days</strong>.</p>
+            <p style="margin-top: 12px;">You will receive a confirmation email once the deletion is complete.</p>
+            <div style="margin-top: 24px;">
+                <a href="index.html" class="btn btn-secondary">← Back to Privacy Policy</a>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p><a href="index.html">← Back to Privacy Policy</a></p>
+            <p style="margin-top: 12px;">© 2025 LiveGreen. All rights reserved.</p>
+        </div>
+    </div>
+
+    <script>
+        // Check if returning from successful submission
+        if (window.location.search.includes('success=true')) {
+            document.getElementById('form-section').style.display = 'none';
+            document.getElementById('success-section').style.display = 'block';
+        }
+
+        // Form validation
+        document.getElementById('deleteForm').addEventListener('submit', function(e) {
+            const email = document.getElementById('email').value;
+            const confirm = document.getElementById('confirm').checked;
+            
+            if (!confirm) {
+                e.preventDefault();
+                alert('Please confirm that you understand this action is permanent.');
+                return false;
+            }
+            
+            if (!email) {
+                e.preventDefault();
+                alert('Please enter your email address.');
+                return false;
+            }
+            
+            // Show loading state
+            document.getElementById('submitBtn').textContent = 'Submitting...';
+            document.getElementById('submitBtn').disabled = true;
+        });
+    </script>
+</body>
+</html>
