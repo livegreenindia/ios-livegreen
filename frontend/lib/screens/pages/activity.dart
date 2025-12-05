@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../../services/api.dart';
 import '../../services/completion_store.dart';
 import '../../services/local_cache.dart';
@@ -36,6 +37,23 @@ class _ActivityPageState extends State<ActivityPage> {
   int _expectedCount = 0;
   int _completionPercent = 0;
   StreamSubscription<Map<String, dynamic>>? _progressSub;
+  
+  // MBSR Timer state management
+  final Map<String, bool> _timerRunning = {};
+  final Map<String, int> _timerSeconds = {};
+  final Map<String, Timer?> _activeTimers = {};
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  
+  // MBSR Breathing exercise state
+  final Map<String, String> _breathingRatio = {};
+  final Map<String, bool> _breathingPaused = {};
+  final Map<String, int> _breathingCycles = {};
+  final Map<String, String> _breathingPhase = {};
+  final Map<String, int> _totalDurationSeconds = {};
+  final Map<String, int> _elapsedSeconds = {};
+  final Map<String, String> _breathingType = {};
+  final AudioPlayer _breathingAudioPlayer = AudioPlayer();
+  final AudioPlayer _phaseAudioPlayer = AudioPlayer();
   
   // Theme-aware color getters
   Color get primaryColor => AppColors.primary;
@@ -470,6 +488,17 @@ class _ActivityPageState extends State<ActivityPage> {
     final tips = activity['tips'] as List<dynamic>?;
     final youtubeUrl = activity['youtubeUrl'] as String?;
     final category = activity['category'] as String?;
+    final activityId = activity['id']?.toString() ?? 'mbsr_activity';
+
+    // Check if this is a mindfulness/MBSR activity - show breathing dialog instead
+    if (category?.toLowerCase() == 'mindfulness' ||
+        title.toLowerCase().contains('mbsr') ||
+        title.toLowerCase().contains('mindfulness') ||
+        title.toLowerCase().contains('breathing') ||
+        title.toLowerCase().contains('meditation')) {
+      _showMBSRBreathingDialog(activityId, title);
+      return;
+    }
 
     showModalBottomSheet(
       context: context,
@@ -1625,6 +1654,701 @@ class _ActivityPageState extends State<ActivityPage> {
     );
   }
 
+  // ============== MBSR BREATHING EXERCISE METHODS ==============
+  
+  /// Show MBSR Mindfulness Breathing Practice Dialog
+  void _showMBSRBreathingDialog(String activityId, String activityTitle) {
+    String selectedRatio = '4:4:4:4';
+    String selectedType = 'box';
+    int selectedDuration = 4;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final bool isRunning = _timerRunning[activityId] ?? false;
+            final bool isPaused = _breathingPaused[activityId] ?? false;
+            final String currentPhase = _breathingPhase[activityId] ?? '';
+            final int remainingTotal = (_totalDurationSeconds[activityId] ?? 0) - (_elapsedSeconds[activityId] ?? 0);
+            
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              backgroundColor: const Color(0xFF0D1F14),
+              title: Row(
+                children: [
+                  Icon(Icons.self_improvement, color: primaryColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'MBSR Practice',
+                      style: GoogleFonts.manrope(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 280,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!isRunning) ...[
+                      Text(
+                        'Select Your MBSR Pattern',
+                        style: GoogleFonts.manrope(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      // Box Breathing card
+                      GestureDetector(
+                        onTap: () {
+                          setDialogState(() {
+                            selectedType = 'box';
+                          });
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: selectedType == 'box' ? primaryColor : const Color(0xFF1A3A2A),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: selectedType == 'box' ? primaryColor : Colors.grey[700]!,
+                              width: selectedType == 'box' ? 2 : 1,
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.crop_square, color: Colors.white.withOpacity(0.9)),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Box Breathing',
+                                    style: GoogleFonts.manrope(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Equal inhale, hold, exhale, hold for calm focus.',
+                                style: GoogleFonts.manrope(
+                                  fontSize: 12,
+                                  color: Colors.white.withOpacity(0.8),
+                                ),
+                              ),
+                              if (selectedType == 'box') ...[
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Choose ratio',
+                                  style: GoogleFonts.manrope(
+                                    fontSize: 13,
+                                    color: Colors.white.withOpacity(0.9),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _mbsrRatioButton('4:4:4:4', selectedRatio, (val) {
+                                        setDialogState(() {
+                                          selectedRatio = val;
+                                        });
+                                      }),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _mbsrRatioButton('5:5:5:5', selectedRatio, (val) {
+                                        setDialogState(() {
+                                          selectedRatio = val;
+                                        });
+                                      }),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _mbsrRatioButton('6:6:6:6', selectedRatio, (val) {
+                                        setDialogState(() {
+                                          selectedRatio = val;
+                                        });
+                                      }),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Duration',
+                                  style: GoogleFonts.manrope(
+                                    fontSize: 13,
+                                    color: Colors.white.withOpacity(0.9),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _mbsrDurationButton('4 min', 4, selectedDuration, (val) {
+                                        setDialogState(() {
+                                          selectedDuration = val;
+                                        });
+                                      }),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _mbsrDurationButton('8 min', 8, selectedDuration, (val) {
+                                        setDialogState(() {
+                                          selectedDuration = val;
+                                        });
+                                      }),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // 4-7-8 Breathing card
+                      GestureDetector(
+                        onTap: () {
+                          setDialogState(() {
+                            selectedType = '478';
+                            selectedRatio = '4:7:8';
+                          });
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: selectedType == '478' ? primaryColor : const Color(0xFF1A3A2A),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: selectedType == '478' ? primaryColor : Colors.grey[700]!,
+                              width: selectedType == '478' ? 2 : 1,
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.all_inclusive, color: selectedType == '478' ? Colors.white : primaryColor),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '4:7:8 Relaxing Breath',
+                                          style: GoogleFonts.manrope(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        Text(
+                                          'Deep relaxation and stress relief technique.',
+                                          style: GoogleFonts.manrope(
+                                            fontSize: 11,
+                                            color: Colors.white.withOpacity(0.7),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (selectedType == '478') ...[
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Duration',
+                                  style: GoogleFonts.manrope(
+                                    fontSize: 13,
+                                    color: Colors.white.withOpacity(0.9),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _mbsrDurationButton('4 min', 4, selectedDuration, (val) {
+                                        setDialogState(() {
+                                          selectedDuration = val;
+                                        });
+                                      }),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _mbsrDurationButton('8 min', 8, selectedDuration, (val) {
+                                        setDialogState(() {
+                                          selectedDuration = val;
+                                        });
+                                      }),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ] else ...[
+                      // Timer display when running - MBSR Breathing Cycle
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A3A2A),
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              'MBSR Breathing Cycle',
+                              style: GoogleFonts.manrope(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.white70,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Time Remaining: ${(remainingTotal / 60).ceil()} min',
+                              style: GoogleFonts.manrope(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: primaryColor,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '${_formatMBSRTime(remainingTotal)} / ${_formatMBSRTime(_totalDurationSeconds[activityId] ?? 0)}',
+                              style: GoogleFonts.manrope(
+                                fontSize: 14,
+                                color: Colors.white70,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            // Circular progress for box breathing
+                            if (_breathingType[activityId] == 'box') ...[
+                              SizedBox(
+                                width: 160,
+                                height: 160,
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 160,
+                                      height: 160,
+                                      child: CircularProgressIndicator(
+                                        value: _getMBSRBreathingProgress(activityId),
+                                        strokeWidth: 8,
+                                        backgroundColor: Colors.grey[800],
+                                        valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                                      ),
+                                    ),
+                                    Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          currentPhase,
+                                          style: GoogleFonts.manrope(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          '${_timerSeconds[activityId] ?? 0}s',
+                                          style: GoogleFonts.manrope(
+                                            fontSize: 16,
+                                            color: Colors.white70,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                            ] else ...[
+                              // For 4-7-8 breathing, show phase text larger
+                              Container(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      currentPhase,
+                                      style: GoogleFonts.manrope(
+                                        fontSize: 28,
+                                        fontWeight: FontWeight.bold,
+                                        color: primaryColor,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      '${_timerSeconds[activityId] ?? 0}s',
+                                      style: GoogleFonts.manrope(
+                                        fontSize: 48,
+                                        fontWeight: FontWeight.w300,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            // Pause/Resume controls
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.volume_up,
+                                    color: Colors.white70,
+                                    size: 28,
+                                  ),
+                                  onPressed: () {},
+                                ),
+                                const SizedBox(width: 20),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: primaryColor,
+                                  ),
+                                  child: IconButton(
+                                    icon: Icon(
+                                      isPaused ? Icons.play_arrow : Icons.pause,
+                                      color: Colors.white,
+                                      size: 32,
+                                    ),
+                                    onPressed: () {
+                                      if (isPaused) {
+                                        _resumeMBSRBreathing(activityId, setDialogState);
+                                      } else {
+                                        _pauseMBSRBreathing(activityId, setDialogState);
+                                      }
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 20),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.close,
+                                    color: Colors.white70,
+                                    size: 28,
+                                  ),
+                                  onPressed: () {
+                                    _stopMBSRBreathing(activityId);
+                                    Navigator.of(dialogContext).pop();
+                                  },
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                if (!isRunning) ...[
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: Text(
+                      'Cancel',
+                      style: GoogleFonts.manrope(color: Colors.grey),
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      _startMBSRBreathing(activityId, selectedRatio, selectedType, selectedDuration, setDialogState);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      'Begin Mindfulness Session',
+                      style: GoogleFonts.manrope(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _mbsrRatioButton(String ratio, String selectedRatio, Function(String) onSelect) {
+    final isSelected = ratio == selectedRatio;
+    return GestureDetector(
+      onTap: () => onSelect(ratio),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF00FF88) : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          ratio,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.manrope(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: isSelected ? const Color(0xFF0D1F14) : Colors.white70,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _mbsrDurationButton(String label, int minutes, int selectedDuration, Function(int) onSelect) {
+    final isSelected = minutes == selectedDuration;
+    return GestureDetector(
+      onTap: () => onSelect(minutes),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF00FF88) : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.manrope(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: isSelected ? const Color(0xFF0D1F14) : Colors.white70,
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatMBSRTime(int seconds) {
+    final minutes = seconds ~/ 60;
+    final secs = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+
+  void _startMBSRBreathing(String activityId, String ratio, String type, int durationMinutes, StateSetter setDialogState) async {
+    final totalSeconds = durationMinutes * 60;
+    
+    setState(() {
+      _timerRunning[activityId] = true;
+      _breathingRatio[activityId] = ratio;
+      _breathingType[activityId] = type;
+      _breathingPaused[activityId] = false;
+      _breathingCycles[activityId] = 0;
+      _totalDurationSeconds[activityId] = totalSeconds;
+      _elapsedSeconds[activityId] = 0;
+    });
+
+    // Play start sound
+    try {
+      await _breathingAudioPlayer.play(AssetSource('sounds/bell_start.mp3'));
+    } catch (e) {
+      // Audio not available, continue silently
+    }
+
+    _runMBSRBreathingCycle(activityId, ratio, type, totalSeconds, setDialogState);
+  }
+
+  void _runMBSRBreathingCycle(String activityId, String ratio, String type, int totalDuration, StateSetter setDialogState) {
+    final parts = ratio.split(':').map(int.parse).toList();
+    final phases = type == '478' 
+        ? ['Breathe In', 'Hold', 'Breathe Out'] 
+        : ['Breathe In', 'Hold', 'Breathe Out', 'Hold'];
+    int phaseIndex = 0;
+    
+    void nextPhase() {
+      if (!mounted || !(_timerRunning[activityId] ?? false)) return;
+      
+      if (_breathingPaused[activityId] ?? false) {
+        Future.delayed(const Duration(milliseconds: 100), nextPhase);
+        return;
+      }
+      
+      // Check if total duration reached
+      final elapsed = _elapsedSeconds[activityId] ?? 0;
+      if (elapsed >= totalDuration) {
+        _onMBSRBreathingComplete(activityId);
+        return;
+      }
+      
+      if (phaseIndex >= phases.length) {
+        phaseIndex = 0;
+      }
+      
+      // Use modulo to safely access both arrays
+      final safePhaseIndex = phaseIndex % phases.length;
+      final duration = parts[safePhaseIndex % parts.length];
+      final currentPhase = phases[safePhaseIndex];
+      
+      setState(() {
+        _breathingPhase[activityId] = currentPhase;
+        _timerSeconds[activityId] = duration;
+      });
+      setDialogState(() {
+        _breathingPhase[activityId] = currentPhase;
+        _timerSeconds[activityId] = duration;
+      });
+      
+      // Play phase-specific audio cues
+      try {
+        if (currentPhase == 'Breathe In') {
+          _phaseAudioPlayer.play(AssetSource('sounds/inhale.mp3'));
+        } else if (currentPhase == 'Breathe Out') {
+          _phaseAudioPlayer.play(AssetSource('sounds/exhale.mp3'));
+        } else if (currentPhase == 'Hold') {
+          _phaseAudioPlayer.play(AssetSource('sounds/hold.mp3'));
+        }
+      } catch (e) {
+        // Audio not available, continue silently
+      }
+      
+      _activeTimers[activityId] = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted || !(_timerRunning[activityId] ?? false)) {
+          timer.cancel();
+          return;
+        }
+        
+        if (_breathingPaused[activityId] ?? false) {
+          return;
+        }
+        
+        final current = _timerSeconds[activityId] ?? 0;
+        final elapsed = _elapsedSeconds[activityId] ?? 0;
+        
+        // Update elapsed time
+        setState(() {
+          _elapsedSeconds[activityId] = elapsed + 1;
+        });
+        setDialogState(() {
+          _elapsedSeconds[activityId] = elapsed + 1;
+        });
+        
+        if (current <= 1) {
+          timer.cancel();
+          phaseIndex++;
+          nextPhase();
+        } else {
+          setState(() {
+            _timerSeconds[activityId] = current - 1;
+          });
+          setDialogState(() {
+            _timerSeconds[activityId] = current - 1;
+          });
+        }
+      });
+    }
+    
+    nextPhase();
+  }
+
+  double _getMBSRBreathingProgress(String activityId) {
+    final ratio = _breathingRatio[activityId] ?? '4:4:4:4';
+    final parts = ratio.split(':').map(int.parse).toList();
+    final totalCycle = parts.reduce((a, b) => a + b);
+    final current = _timerSeconds[activityId] ?? 0;
+    final phase = _breathingPhase[activityId] ?? 'Breathe In';
+    
+    int elapsed = 0;
+    if (phase == 'Breathe In') {
+      elapsed = parts[0] - current;
+    } else if (phase == 'Hold' && parts.length > 3 && current > parts[2]) {
+      elapsed = parts[0] + (parts[1] - current);
+    } else if (phase == 'Breathe Out') {
+      elapsed = parts[0] + parts[1] + (parts.length > 2 ? parts[2] - current : 0);
+    } else if (phase == 'Hold' && parts.length > 3) {
+      elapsed = parts[0] + parts[1] + parts[2] + (parts[3] - current);
+    }
+    
+    return (elapsed / totalCycle).clamp(0.0, 1.0);
+  }
+
+  void _pauseMBSRBreathing(String activityId, StateSetter setDialogState) {
+    setState(() {
+      _breathingPaused[activityId] = true;
+    });
+    setDialogState(() {
+      _breathingPaused[activityId] = true;
+    });
+    _breathingAudioPlayer.pause();
+    _phaseAudioPlayer.pause();
+  }
+
+  void _resumeMBSRBreathing(String activityId, StateSetter setDialogState) {
+    setState(() {
+      _breathingPaused[activityId] = false;
+    });
+    setDialogState(() {
+      _breathingPaused[activityId] = false;
+    });
+    _breathingAudioPlayer.resume();
+    _phaseAudioPlayer.resume();
+  }
+
+  void _stopMBSRBreathing(String activityId) {
+    _activeTimers[activityId]?.cancel();
+    _activeTimers[activityId] = null;
+    _breathingAudioPlayer.stop();
+    _phaseAudioPlayer.stop();
+    setState(() {
+      _timerRunning[activityId] = false;
+      _breathingPaused[activityId] = false;
+      _breathingCycles[activityId] = 0;
+      _breathingPhase[activityId] = '';
+      _timerSeconds[activityId] = 0;
+      _totalDurationSeconds[activityId] = 0;
+      _elapsedSeconds[activityId] = 0;
+      _breathingType[activityId] = '';
+    });
+  }
+
+  void _onMBSRBreathingComplete(String activityId) {
+    // Play completion sound
+    try {
+      _audioPlayer.play(AssetSource('sounds/bell_complete.mp3'));
+    } catch (e) {
+      // Audio not available
+    }
+    
+    _stopMBSRBreathing(activityId);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white),
+            const SizedBox(width: 12),
+            const Text('Mindfulness session completed! 🧘'),
+          ],
+        ),
+        backgroundColor: primaryColor,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+  
+  // ============== END MBSR BREATHING METHODS ==============
+
   @override
   void initState() {
     super.initState();
@@ -1637,6 +2361,13 @@ class _ActivityPageState extends State<ActivityPage> {
   @override
   void dispose() {
     _progressSub?.cancel();
+    // Dispose MBSR timer resources
+    for (var timer in _activeTimers.values) {
+      timer?.cancel();
+    }
+    _audioPlayer.dispose();
+    _breathingAudioPlayer.dispose();
+    _phaseAudioPlayer.dispose();
     super.dispose();
   }
 
