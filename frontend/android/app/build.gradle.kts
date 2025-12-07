@@ -15,6 +15,13 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    // Load properties from key.properties
+    val keystoreProperties = Properties()
+    val keystorePropertiesFile = rootProject.file("key.properties")
+    if (keystorePropertiesFile.exists()) {
+        FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -37,15 +44,10 @@ android {
         ndk {
             debugSymbolLevel = "SYMBOL_TABLE"
         }
-    }
-
-    // Load signing config from key.properties
-
-    val keystoreProperties = Properties()
-    // key.properties is located in the android project root (frontend/android/key.properties)
-    val keystorePropertiesFile = rootProject.file("key.properties")
-    if (keystorePropertiesFile.exists()) {
-        FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
+        
+        // Google Maps API key from key.properties
+        val mapsApiKey = keystoreProperties["MAPS_API_KEY"] as String? ?: ""
+        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
     signingConfigs {

@@ -11,6 +11,7 @@ import '../screens/profile_selection_screen.dart';
 import '../screens/wellness_schedule_screen.dart';
 import '../screens/legal/privacy_policy_screen.dart';
 import '../screens/legal/terms_of_service_screen.dart';
+import '../screens/trek/trek_list_screen.dart';
 
 class AppRoutes {
   static const login = '/login';
@@ -25,6 +26,7 @@ class AppRoutes {
   static const wellnessSchedule = '/wellness/schedule';
   static const privacyPolicy = '/legal/privacy-policy';
   static const termsOfService = '/legal/terms-of-service';
+  static const trekExplorer = '/trek-explorer';
 
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
@@ -55,6 +57,8 @@ class AppRoutes {
         return MaterialPageRoute(builder: (_) => const PrivacyPolicyScreen());
       case termsOfService:
         return MaterialPageRoute(builder: (_) => const TermsOfServiceScreen());
+      case trekExplorer:
+        return MaterialPageRoute(builder: (_) => const TrekListScreen());
       default:
         return MaterialPageRoute(builder: (_) => const LoginScreen());
     }

@@ -1,60 +1,135 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.admin == true;
+    }
+    
+    function isAdminByRole() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
     // Activities: read public, write only admin
     match /activities/{docId} {
       allow read: if true;
-      allow write: if request.auth != null && request.auth.token.admin == true;
+      allow write: if isAdmin();
     }
 
     // Users top-level document - user can read/write their own data
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow read, write: if isOwner(userId);
+      allow read: if isAdmin();
+      
+      // User's recorded tracks subcollection
+      match /tracks/{trackId} {
+        allow read, write: if isOwner(userId);
+        allow create: if isOwner(userId) && 
+                        request.resource.data.userId == userId;
+      }
+      
+      // User's favorites subcollection
+      match /favorites/{favoriteId} {
+        allow read, write: if isOwner(userId);
+      }
+      
+      // User's custom routes subcollection
+      match /customRoutes/{routeId} {
+        allow read, write: if isOwner(userId);
+      }
+      
+      // User's other subcollections (catch-all for existing)
+      match /{sub=**} {
+        allow read, write: if isOwner(userId);
+        allow read: if isAdmin();
+      }
     }
 
-    // Users subcollections - user can read/write their own data, admin can read
-    match /users/{userId}/{sub=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-      allow read: if request.auth != null && request.auth.token.admin == true;
-    }
-
-    // Provider tokens under a user: the user may write their own provider tokens, admin may read
+    // Provider tokens under a user
     match /users/{userId}/providers/{providerId} {
-      allow read: if request.auth != null && (request.auth.uid == userId || request.auth.token.admin == true);
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId);
     }
 
-    // Forum: posts are public read, only admins can create posts, authenticated can comment/like
+    // Forum: posts are public read, only admins can create posts
     match /forumPosts/{postId} {
       allow read: if true;
-      // Only admins can create posts
-      allow create: if request.auth != null && 
-                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-      allow update, delete: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow create: if isAdminByRole();
+      allow update, delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
 
-      // Anyone authenticated can comment
       match /comments/{commentId} {
-        allow create: if request.auth != null;
+        allow create: if isAuthenticated();
         allow read: if true;
-        allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+        allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
       }
 
-      // Anyone authenticated can like
       match /likes/{likeId} {
-        allow create: if request.auth != null && request.auth.uid == likeId;
+        allow create: if isAuthenticated() && request.auth.uid == likeId;
         allow read: if true;
-        allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+        allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
       }
     }
 
-    // Daily metrics: users can read their own metrics
+    // Daily metrics: users can read/write their own metrics
     match /daily_metrics/{docId} {
-      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow write: if request.auth != null && request.auth.uid == request.resource.data.uid;
+      allow read: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow write: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
     }
 
-    // Default: deny
-    match /{document=**} { allow read, write: if false; }
+    // Trek Explorer: Treks collection
+    match /treks/{trekId} {
+      // Allow read for:
+      // 1. All authenticated users (client filters public/private)
+      // 2. Unauthenticated users can only read public treks (single doc reads)
+      // Note: Collection queries require auth to prevent abuse
+      allow read: if isAuthenticated() || resource.data.isPublic == true;
+      
+      // Authenticated users can create treks
+      allow create: if isAuthenticated() && 
+                      request.resource.data.createdBy == request.auth.uid;
+      // Only creator or admin can update/delete
+      allow update, delete: if isAuthenticated() && 
+                              (resource.data.createdBy == request.auth.uid || isAdmin());
+      
+      // Trek reviews subcollection (nested under trek)
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow create: if isAuthenticated() && 
+                        request.resource.data.userId == request.auth.uid;
+        allow update, delete: if isAuthenticated() && 
+                                resource.data.userId == request.auth.uid;
+      }
+    }
+
+    // Trek Reviews (top-level collection for backward compatibility)
+    match /trek_reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && 
+                      request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAuthenticated() && 
+                              resource.data.userId == request.auth.uid;
+    }
+
+    // Recorded Tracks (legacy top-level collection)
+    match /recorded_tracks/{trackId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow write: if isAuthenticated() && 
+                    (resource == null || resource.data.userId == request.auth.uid) &&
+                    request.resource.data.userId == request.auth.uid;
+    }
+
+    // Default: deny all unmatched paths
+    match /{document=**} { 
+      allow read, write: if false; 
+    }
   }
 }

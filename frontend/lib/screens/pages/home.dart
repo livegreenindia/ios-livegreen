@@ -4,6 +4,7 @@ import 'activity.dart';
 import 'progress.dart';
 import 'community.dart';
 import 'profile.dart';
+import '../trek/trek_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ActivityPage(),
     ProgressPage(),
     CommunityPage(),
+    TrekListScreen(),
     ProfilePage(),
   ];
 
@@ -56,6 +58,11 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.forum_outlined),
             selectedIcon: Icon(Icons.forum),
             label: 'Community',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.explore_outlined),
+            selectedIcon: Icon(Icons.explore),
+            label: 'Explorer',
           ),
           NavigationDestination(
             icon: Icon(Icons.account_circle_outlined),
