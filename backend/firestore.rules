@@ -127,6 +127,60 @@ service cloud.firestore {
                     request.resource.data.userId == request.auth.uid;
     }
 
+    // Clubs: Ecology community clubs
+    match /clubs/{clubId} {
+      // Read: approved clubs are public, pending/rejected only by admin/creator
+      allow read: if resource.data.status == 'approved' ||
+                     isAdmin() ||
+                     (isAuthenticated() && resource.data.creatorId == request.auth.uid);
+      
+      // Create: authenticated users can create pending clubs
+      allow create: if isAuthenticated() && 
+                      request.resource.data.creatorId == request.auth.uid &&
+                      request.resource.data.status == 'pending' &&
+                      request.resource.data.memberIds.hasAll([request.auth.uid]) &&
+                      request.resource.data.leaderIds.hasAll([request.auth.uid]);
+      
+      // Update: creator can update pending clubs, admin can approve/reject, leaders can edit approved clubs
+      allow update: if isAuthenticated() && 
+                      ((resource.data.status == 'pending' && resource.data.creatorId == request.auth.uid) ||
+                       (isAdmin() && (request.resource.data.status == 'approved' || 
+                                      request.resource.data.status == 'rejected')) ||
+                       (resource.data.status == 'approved' && resource.data.leaderIds.hasAny([request.auth.uid])));
+      
+      // Delete: only admin can delete
+      allow delete: if isAdmin();
+      
+      // Activities subcollection
+      match /activities/{activityId} {
+        // Read: approved clubs' activities are public
+        allow read: if get(/databases/$(database)/documents/clubs/$(clubId)).data.status == 'approved' ||
+                       get(/databases/$(database)/documents/clubs/$(clubId)).data.creatorId == request.auth.uid;
+        
+        // Create: club members can post activities
+        allow create: if isAuthenticated() && 
+                        get(/databases/$(database)/documents/clubs/$(clubId)).data.memberIds.hasAny([request.auth.uid]) &&
+                        request.resource.data.authorId == request.auth.uid;
+        
+        // Update/Delete: author or club leaders only
+        allow update, delete: if isAuthenticated() && 
+                               (resource.data.authorId == request.auth.uid ||
+                                get(/databases/$(database)/documents/clubs/$(clubId)).data.leaderIds.hasAny([request.auth.uid]));
+      }
+      
+      // Members subcollection
+      match /members/{memberId} {
+        // Read: members list of approved clubs is public, pending club members only for members
+        allow read: if get(/databases/$(database)/documents/clubs/$(clubId)).data.status == 'approved' ||
+                       (isAuthenticated() && get(/databases/$(database)/documents/clubs/$(clubId)).data.memberIds.hasAny([request.auth.uid]));
+        
+        // Create/Update/Delete: handled by club service
+        allow write: if isAuthenticated() && 
+                      (get(/databases/$(database)/documents/clubs/$(clubId)).data.leaderIds.hasAny([request.auth.uid]) ||
+                       isAdmin());
+      }
+    }
+
     // Default: deny all unmatched paths
     match /{document=**} { 
       allow read, write: if false; 

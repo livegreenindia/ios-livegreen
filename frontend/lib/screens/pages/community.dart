@@ -11,6 +11,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/api.dart';
 import '../../config/api.dart' as cfg;
 import '../../theme/app_theme.dart';
+import '../community/clubs_list_screen.dart';
+import '../community/my_clubs_screen.dart';
+import '../admin/admin_club_approval_screen.dart';
 
 class CommunityPage extends StatefulWidget {
   const CommunityPage({super.key});
@@ -212,6 +215,11 @@ class _CommunityPageState extends State<CommunityPage> {
                 ),
 
               const SizedBox(height: 18),
+
+              // Section: Clubs Navigation
+              _buildClubsSection(context, isDark),
+
+              const SizedBox(height: 20),
 
               // Section: Trending Posts
               Row(
@@ -819,4 +827,187 @@ class _CommunityPageState extends State<CommunityPage> {
       ),
     );
   }
+
+  /// Build Clubs Section with navigation options
+  Widget _buildClubsSection(BuildContext context, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? backgroundDark.withAlpha((0.6 * 255).round()) : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: primaryColor.withOpacity(0.2),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: primaryColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.groups_2_outlined,
+                  color: primaryColor,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Ecology Clubs',
+                  style: GoogleFonts.manrope(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Description
+          Text(
+            'Join or create clubs related to ecology and environmental conservation',
+            style: GoogleFonts.manrope(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.white70 : Colors.black87,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Action Buttons
+          Row(
+            children: [
+              // Browse Clubs Button
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ClubsListScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.explore_outlined, size: 18),
+                  label: Text(
+                    'Browse Clubs',
+                    style: GoogleFonts.manrope(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // My Clubs Button
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const MyClubsScreen(),
+                      ),
+                    );
+                  },
+                  icon: Icon(
+                    Icons.bookmark_outlined,
+                    size: 18,
+                    color: primaryColor,
+                  ),
+                  label: Text(
+                    'My Clubs',
+                    style: GoogleFonts.manrope(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      color: primaryColor,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                      color: primaryColor.withOpacity(0.3),
+                      width: 1.5,
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // Admin Club Approvals (show only for admins)
+          if (_isAdmin && !_checkingRole) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const AdminClubApprovalScreen(),
+                    ),
+                  );
+                },
+                icon: Icon(
+                  Icons.verified_user_outlined,
+                  size: 18,
+                  color: Colors.orange,
+                ),
+                label: Text(
+                  'Review Pending Clubs',
+                  style: GoogleFonts.manrope(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                    color: Colors.orange,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(
+                    color: Colors.orange.withOpacity(0.3),
+                    width: 1.5,
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
+
