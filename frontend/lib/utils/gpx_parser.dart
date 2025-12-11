@@ -378,7 +378,7 @@ class GPXParseResult {
   /// Convert to Trek model
   Trek toTrek({
     required String id,
-    TrekCategory category = TrekCategory.walkingPath,
+    TrekCategory category = TrekCategory.natureWalk,
     TrekDifficulty? difficulty,
   }) {
     // Auto-determine difficulty based on distance and elevation

@@ -10,13 +10,16 @@ import '../../models/trek.dart';
 import '../../services/trek_service.dart';
 import '../../services/osm_trek_service.dart';
 import '../../services/location_tracking_service.dart';
+import '../../services/place_submission_service.dart';
 import '../../utils/gpx_parser.dart';
 import '../../utils/geo_utils.dart';
 import '../../widgets/trek/trek_components.dart';
 import 'trek_details_screen.dart';
 import 'path_tracking_screen.dart';
+import 'draw_path_screen.dart';
 import 'favorites_screen.dart';
 import 'history_screen.dart';
+import 'pending_places_screen.dart';
 
 /// Trek List Screen with filtering, search, and pagination
 class TrekListScreen extends StatefulWidget {
@@ -32,6 +35,7 @@ class _TrekListScreenState extends State<TrekListScreen>
   final TrekService _trekService = TrekService();
   final OSMTrekService _osmTrekService = OSMTrekService();
   final LocationTrackingService _locationService = LocationTrackingService();
+  final PlaceSubmissionService _placeSubmissionService = PlaceSubmissionService();
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
   
@@ -46,6 +50,7 @@ class _TrekListScreenState extends State<TrekListScreen>
   String? _error;
   TrekCategory? _selectedCategory;
   String _searchQuery = '';
+  bool _isAdmin = false;
   
   // Location state
   Position? _currentPosition;
@@ -65,7 +70,6 @@ class _TrekListScreenState extends State<TrekListScreen>
   static const int _tabFitness = 2;
 
   final List<TrekCategory> _pathFilterCategories = [
-    TrekCategory.walkingPath,
     TrekCategory.trekkingPoint,
     TrekCategory.natureWalk,
     TrekCategory.cyclePath,
@@ -86,6 +90,14 @@ class _TrekListScreenState extends State<TrekListScreen>
     _tabController.addListener(_onTabChanged);
     _scrollController.addListener(_onScroll);
     _initializeLocation();
+    _checkAdminStatus();
+  }
+
+  Future<void> _checkAdminStatus() async {
+    final isAdmin = await _placeSubmissionService.isUserAdmin();
+    if (mounted) {
+      setState(() => _isAdmin = isAdmin);
+    }
   }
 
   Future<void> _initializeLocation() async {
@@ -256,12 +268,10 @@ class _TrekListScreenState extends State<TrekListScreen>
 
   double _getMarkerHue(TrekCategory category) {
     switch (category) {
-      case TrekCategory.walkingPath:
-        return BitmapDescriptor.hueGreen;
       case TrekCategory.trekkingPoint:
         return BitmapDescriptor.hueOrange;
       case TrekCategory.natureWalk:
-        return BitmapDescriptor.hueCyan;
+        return BitmapDescriptor.hueGreen;
       case TrekCategory.cyclePath:
         return BitmapDescriptor.hueViolet;
       case TrekCategory.pointOfInterest:
@@ -574,9 +584,264 @@ class _TrekListScreenState extends State<TrekListScreen>
   }
 
   void _drawCustomPath() {
-    // TODO: Implement custom path drawing
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Custom path drawing coming soon!')),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const DrawPathScreen(),
+      ),
+    );
+  }
+
+  /// Show dialog to submit a new place
+  void _showSubmitPlaceDialog() {
+    final formKey = GlobalKey<FormState>();
+    final titleController = TextEditingController();
+    final descriptionController = TextEditingController();
+    final addressController = TextEditingController();
+    final phoneController = TextEditingController();
+    final websiteController = TextEditingController();
+    TrekCategory selectedCategory = TrekCategory.pointOfInterest;
+    bool isSubmitting = false;
+    bool useCurrentLocation = true;
+    double? customLat;
+    double? customLng;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.9,
+              minChildSize: 0.5,
+              maxChildSize: 0.95,
+              expand: false,
+              builder: (context, scrollController) {
+                return Container(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: Form(
+                    key: formKey,
+                    child: ListView(
+                      controller: scrollController,
+                      children: [
+                        // Header
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppColors.success.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(Icons.add_location_alt, color: AppColors.success),
+                            ),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Submit New Place',
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Your submission will be reviewed by admin',
+                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
+                        
+                        // Place Name
+                        TextFormField(
+                          controller: titleController,
+                          decoration: const InputDecoration(
+                            labelText: 'Place Name *',
+                            prefixIcon: Icon(Icons.place),
+                            border: OutlineInputBorder(),
+                          ),
+                          validator: (v) => v?.trim().isEmpty == true ? 'Required' : null,
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        
+                        // Category
+                        DropdownButtonFormField<TrekCategory>(
+                          value: selectedCategory,
+                          decoration: const InputDecoration(
+                            labelText: 'Category *',
+                            prefixIcon: Icon(Icons.category),
+                            border: OutlineInputBorder(),
+                          ),
+                          items: [
+                            TrekCategory.pointOfInterest,
+                            TrekCategory.trekkingPoint,
+                            TrekCategory.natureWalk,
+                            TrekCategory.cyclePath,
+                            TrekCategory.gym,
+                            TrekCategory.swimmingPool,
+                            TrekCategory.yogaCenter,
+                            TrekCategory.sportsClub,
+                            TrekCategory.artsCenter,
+                          ].map((cat) => DropdownMenuItem(
+                            value: cat,
+                            child: Text(cat.displayName),
+                          )).toList(),
+                          onChanged: (v) => setSheetState(() => selectedCategory = v!),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        
+                        // Description
+                        TextFormField(
+                          controller: descriptionController,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText: 'Description *',
+                            prefixIcon: Icon(Icons.description),
+                            border: OutlineInputBorder(),
+                            alignLabelWithHint: true,
+                          ),
+                          validator: (v) => v?.trim().isEmpty == true ? 'Required' : null,
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        
+                        // Location option
+                        SwitchListTile(
+                          title: const Text('Use Current Location'),
+                          subtitle: _currentPosition != null
+                              ? Text('${_currentPosition!.latitude.toStringAsFixed(4)}, ${_currentPosition!.longitude.toStringAsFixed(4)}')
+                              : const Text('Location not available'),
+                          value: useCurrentLocation,
+                          onChanged: _currentPosition != null
+                              ? (v) => setSheetState(() => useCurrentLocation = v)
+                              : null,
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        
+                        // Address
+                        TextFormField(
+                          controller: addressController,
+                          decoration: const InputDecoration(
+                            labelText: 'Address (optional)',
+                            prefixIcon: Icon(Icons.location_on),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        
+                        // Phone
+                        TextFormField(
+                          controller: phoneController,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                            labelText: 'Phone (optional)',
+                            prefixIcon: Icon(Icons.phone),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        
+                        // Website
+                        TextFormField(
+                          controller: websiteController,
+                          keyboardType: TextInputType.url,
+                          decoration: const InputDecoration(
+                            labelText: 'Website (optional)',
+                            prefixIcon: Icon(Icons.language),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
+                        
+                        // Submit button
+                        FilledButton.icon(
+                          onPressed: isSubmitting ? null : () async {
+                            if (!formKey.currentState!.validate()) return;
+                            
+                            if (useCurrentLocation && _currentPosition == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Location not available')),
+                              );
+                              return;
+                            }
+                            
+                            setSheetState(() => isSubmitting = true);
+                            
+                            try {
+                              final lat = useCurrentLocation 
+                                  ? _currentPosition!.latitude 
+                                  : (customLat ?? _currentPosition!.latitude);
+                              final lng = useCurrentLocation 
+                                  ? _currentPosition!.longitude 
+                                  : (customLng ?? _currentPosition!.longitude);
+                              
+                              await _placeSubmissionService.submitPlace(
+                                title: titleController.text.trim(),
+                                description: descriptionController.text.trim(),
+                                category: selectedCategory,
+                                latitude: lat,
+                                longitude: lng,
+                                address: addressController.text.trim().isEmpty 
+                                    ? null : addressController.text.trim(),
+                                phoneNumber: phoneController.text.trim().isEmpty 
+                                    ? null : phoneController.text.trim(),
+                                website: websiteController.text.trim().isEmpty 
+                                    ? null : websiteController.text.trim(),
+                              );
+                              
+                              if (context.mounted) {
+                                Navigator.pop(context);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Place submitted for review!'),
+                                    backgroundColor: AppColors.success,
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              setSheetState(() => isSubmitting = false);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Error: $e')),
+                                );
+                              }
+                            }
+                          },
+                          icon: isSubmitting 
+                              ? const SizedBox(
+                                  width: 20, 
+                                  height: 20, 
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.send),
+                          label: Text(isSubmitting ? 'Submitting...' : 'Submit for Review'),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(50),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.lg),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 
@@ -612,6 +877,30 @@ class _TrekListScreenState extends State<TrekListScreen>
                 ),
               ),
               actions: [
+                // Admin pending places button (only for admins)
+                if (_isAdmin)
+                  StreamBuilder<int>(
+                    stream: _placeSubmissionService.streamPendingCount(),
+                    builder: (context, snapshot) {
+                      final count = snapshot.data ?? 0;
+                      return Badge(
+                        label: count > 0 ? Text('$count') : null,
+                        isLabelVisible: count > 0,
+                        child: IconButton(
+                          icon: const Icon(Icons.pending_actions),
+                          tooltip: 'Pending Places',
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const PendingPlacesScreen(),
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  ),
                 // Map/List toggle button
                 IconButton(
                   icon: Icon(_showMapView ? Icons.list : Icons.map),
@@ -734,6 +1023,7 @@ class _TrekListScreenState extends State<TrekListScreen>
         onImportGPX: _importGPX,
         onRecordTrack: _startRecording,
         onDrawPath: _drawCustomPath,
+        onSubmitPlace: _showSubmitPlaceDialog,
       ),
     );
   }
@@ -857,7 +1147,7 @@ class _TrekListScreenState extends State<TrekListScreen>
           title = 'No paths found nearby';
           subtitle = _searchQuery.isNotEmpty
               ? 'No results for "$_searchQuery"'
-              : 'We\'re discovering walking trails, cycling paths and nature walks in your area';
+              : 'We\'re discovering trails, cycling paths and nature/jogging routes in your area';
           icon = Icons.route_outlined;
       }
       
@@ -1132,12 +1422,10 @@ class _TrekListScreenState extends State<TrekListScreen>
 
   IconData _getCategoryIcon(TrekCategory category) {
     switch (category) {
-      case TrekCategory.walkingPath:
-        return Icons.directions_walk;
       case TrekCategory.trekkingPoint:
         return Icons.terrain;
       case TrekCategory.natureWalk:
-        return Icons.park;
+        return Icons.directions_run;
       case TrekCategory.cyclePath:
         return Icons.directions_bike;
       case TrekCategory.pointOfInterest:

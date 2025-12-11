@@ -197,9 +197,37 @@ enum TrekDifficulty {
   }
 }
 
+/// Approval status for user-submitted places
+enum PlaceApprovalStatus {
+  pending,
+  approved,
+  rejected;
+
+  String get displayName {
+    switch (this) {
+      case PlaceApprovalStatus.pending:
+        return 'Pending Review';
+      case PlaceApprovalStatus.approved:
+        return 'Approved';
+      case PlaceApprovalStatus.rejected:
+        return 'Rejected';
+    }
+  }
+
+  static PlaceApprovalStatus fromString(String? value) {
+    switch (value?.toLowerCase()) {
+      case 'approved':
+        return PlaceApprovalStatus.approved;
+      case 'rejected':
+        return PlaceApprovalStatus.rejected;
+      default:
+        return PlaceApprovalStatus.pending;
+    }
+  }
+}
+
 /// Trek category/type
 enum TrekCategory {
-  walkingPath,
   trekkingPoint,
   natureWalk,
   cyclePath,
@@ -214,12 +242,10 @@ enum TrekCategory {
 
   String get displayName {
     switch (this) {
-      case TrekCategory.walkingPath:
-        return 'Walking paths';
       case TrekCategory.trekkingPoint:
         return 'Trekking points';
       case TrekCategory.natureWalk:
-        return 'Nature walks';
+        return 'Nature/jogging';
       case TrekCategory.cyclePath:
         return 'Cycle paths';
       case TrekCategory.pointOfInterest:
@@ -241,12 +267,10 @@ enum TrekCategory {
 
   String get iconName {
     switch (this) {
-      case TrekCategory.walkingPath:
-        return 'directions_walk';
       case TrekCategory.trekkingPoint:
         return 'terrain';
       case TrekCategory.natureWalk:
-        return 'park';
+        return 'directions_run';
       case TrekCategory.cyclePath:
         return 'directions_bike';
       case TrekCategory.pointOfInterest:
@@ -278,9 +302,6 @@ enum TrekCategory {
 
   static TrekCategory fromString(String? value) {
     switch (value?.toLowerCase()) {
-      case 'walking_path':
-      case 'walkingpath':
-        return TrekCategory.walkingPath;
       case 'trekking_point':
       case 'trekkingpoint':
         return TrekCategory.trekkingPoint;
@@ -310,8 +331,11 @@ enum TrekCategory {
       case 'arts_center':
       case 'artscenter':
         return TrekCategory.artsCenter;
+      case 'walking_path':
+      case 'walkingpath':
+        return TrekCategory.natureWalk;
       default:
-        return TrekCategory.walkingPath;
+        return TrekCategory.natureWalk;
     }
   }
 }
@@ -344,6 +368,16 @@ class Trek {
   final String? createdBy;
   final bool isPublic;
   final List<String> tags;
+  // User-submitted place fields
+  final bool isUserSubmitted;
+  final PlaceApprovalStatus approvalStatus;
+  final String? submitterName;
+  final String? approvedBy;
+  final DateTime? approvedAt;
+  final String? rejectionReason;
+  final String? address;
+  final String? phoneNumber;
+  final String? website;
 
   const Trek({
     required this.id,
@@ -372,6 +406,16 @@ class Trek {
     this.createdBy,
     this.isPublic = true,
     this.tags = const [],
+    // User-submitted place fields
+    this.isUserSubmitted = false,
+    this.approvalStatus = PlaceApprovalStatus.approved,
+    this.submitterName,
+    this.approvedBy,
+    this.approvedAt,
+    this.rejectionReason,
+    this.address,
+    this.phoneNumber,
+    this.website,
   });
 
   /// Creates a Trek from Firestore document
@@ -438,6 +482,20 @@ class Trek {
       createdBy: map['createdBy'],
       isPublic: map['isPublic'] ?? true,
       tags: tagsData.map((t) => t.toString()).toList(),
+      // User-submitted place fields
+      isUserSubmitted: map['isUserSubmitted'] ?? false,
+      approvalStatus: PlaceApprovalStatus.fromString(map['approvalStatus']),
+      submitterName: map['submitterName'],
+      approvedBy: map['approvedBy'],
+      approvedAt: map['approvedAt'] != null
+          ? (map['approvedAt'] is Timestamp
+              ? (map['approvedAt'] as Timestamp).toDate()
+              : DateTime.parse(map['approvedAt'].toString()))
+          : null,
+      rejectionReason: map['rejectionReason'],
+      address: map['address'],
+      phoneNumber: map['phoneNumber'],
+      website: map['website'],
     );
   }
 
@@ -468,6 +526,16 @@ class Trek {
       'createdBy': createdBy,
       'isPublic': isPublic,
       'tags': tags,
+      // User-submitted place fields
+      'isUserSubmitted': isUserSubmitted,
+      'approvalStatus': approvalStatus.name,
+      'submitterName': submitterName,
+      'approvedBy': approvedBy,
+      'approvedAt': approvedAt != null ? Timestamp.fromDate(approvedAt!) : null,
+      'rejectionReason': rejectionReason,
+      'address': address,
+      'phoneNumber': phoneNumber,
+      'website': website,
     };
   }
 
@@ -524,6 +592,16 @@ class Trek {
     String? createdBy,
     bool? isPublic,
     List<String>? tags,
+    // User-submitted place fields
+    bool? isUserSubmitted,
+    PlaceApprovalStatus? approvalStatus,
+    String? submitterName,
+    String? approvedBy,
+    DateTime? approvedAt,
+    String? rejectionReason,
+    String? address,
+    String? phoneNumber,
+    String? website,
   }) {
     return Trek(
       id: id ?? this.id,
@@ -552,6 +630,16 @@ class Trek {
       createdBy: createdBy ?? this.createdBy,
       isPublic: isPublic ?? this.isPublic,
       tags: tags ?? this.tags,
+      // User-submitted place fields
+      isUserSubmitted: isUserSubmitted ?? this.isUserSubmitted,
+      approvalStatus: approvalStatus ?? this.approvalStatus,
+      submitterName: submitterName ?? this.submitterName,
+      approvedBy: approvedBy ?? this.approvedBy,
+      approvedAt: approvedAt ?? this.approvedAt,
+      rejectionReason: rejectionReason ?? this.rejectionReason,
+      address: address ?? this.address,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+      website: website ?? this.website,
     );
   }
 

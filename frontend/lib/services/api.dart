@@ -3,6 +3,24 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+/// Exception thrown when wellness logging is rate limited (once per 24 hours)
+class WellnessRateLimitException implements Exception {
+  final String message;
+  final int hoursRemaining;
+  final int? lastScore;
+  final String? lastTimestamp;
+
+  WellnessRateLimitException({
+    required this.message,
+    required this.hoursRemaining,
+    this.lastScore,
+    this.lastTimestamp,
+  });
+
+  @override
+  String toString() => message;
+}
+
 class ApiService {
   // Base URL for the backend API (change to your deployed functions URL)
   // Example: https://us-central1-yourproject.cloudfunctions.net/api
@@ -15,9 +33,14 @@ class ApiService {
     if (user == null) return null;
     return await user.getIdToken();
   }
-  
+
   // Small helper to build headers and optionally log the Authorization header
-  Map<String, String> _buildHeaders({bool jsonContent = false, String? token, String method = '', String url = ''}) {
+  Map<String, String> _buildHeaders({
+    bool jsonContent = false,
+    String? token,
+    String method = '',
+    String url = '',
+  }) {
     final headers = <String, String>{};
     if (jsonContent) headers['Content-Type'] = 'application/json';
     if (token != null) {
@@ -25,8 +48,12 @@ class ApiService {
       // Lightweight debug: print presence and truncated token for developer troubleshooting
       assert(() {
         final t = token;
-        final preview = t.length > 16 ? '${t.substring(0, 8)}...${t.substring(t.length - 8)}' : t;
-        debugPrint('[ApiService] $method $url Authorization present (token preview: $preview)');
+        final preview = t.length > 16
+            ? '${t.substring(0, 8)}...${t.substring(t.length - 8)}'
+            : t;
+        debugPrint(
+          '[ApiService] $method $url Authorization present (token preview: $preview)',
+        );
         return true;
       }());
     }
@@ -38,7 +65,12 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/summary/series?range=$range');
     final resp = await http.get(
       uri,
-      headers: _buildHeaders(jsonContent: false, token: token, method: 'GET', url: uri.toString()),
+      headers: _buildHeaders(
+        jsonContent: false,
+        token: token,
+        method: 'GET',
+        url: uri.toString(),
+      ),
     );
     if (resp.statusCode == 200) {
       final parsed = json.decode(resp.body);
@@ -63,7 +95,12 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/activities?date=$localDate');
     final resp = await http.get(
       uri,
-      headers: _buildHeaders(jsonContent: false, token: token, method: 'GET', url: uri.toString()),
+      headers: _buildHeaders(
+        jsonContent: false,
+        token: token,
+        method: 'GET',
+        url: uri.toString(),
+      ),
     );
     if (resp.statusCode == 200) {
       try {
@@ -116,7 +153,12 @@ class ApiService {
     }
     final resp = await http.post(
       uri,
-      headers: _buildHeaders(jsonContent: true, token: token, method: 'POST', url: uri.toString()),
+      headers: _buildHeaders(
+        jsonContent: true,
+        token: token,
+        method: 'POST',
+        url: uri.toString(),
+      ),
       body: json.encode(payload),
     );
     if (resp.statusCode != 200 && resp.statusCode != 201) {
@@ -132,12 +174,53 @@ class ApiService {
     final body = {'score': score, if (date != null) 'date': date};
     final resp = await http.post(
       uri,
-      headers: _buildHeaders(jsonContent: true, token: token, method: 'POST', url: uri.toString()),
+      headers: _buildHeaders(
+        jsonContent: true,
+        token: token,
+        method: 'POST',
+        url: uri.toString(),
+      ),
       body: json.encode(body),
     );
+    if (resp.statusCode == 429) {
+      final data = json.decode(resp.body);
+      throw WellnessRateLimitException(
+        message: data['message'] ?? 'Rate limited',
+        hoursRemaining: data['hoursRemaining'] ?? 0,
+        lastScore: data['lastScore'],
+        lastTimestamp: data['lastTimestamp'],
+      );
+    }
     if (resp.statusCode != 200 && resp.statusCode != 201) {
       throw Exception('Failed to post happiness (${resp.statusCode})');
     }
+  }
+
+  /// Get the last wellness log for the current user
+  Future<Map<String, dynamic>?> getLastWellnessLog() async {
+    final token = await _getIdToken();
+    final uri = Uri.parse('$baseUrl/happiness/last');
+    final resp = await http.get(
+      uri,
+      headers: _buildHeaders(
+        jsonContent: false,
+        token: token,
+        method: 'GET',
+        url: uri.toString(),
+      ),
+    );
+    if (resp.statusCode == 200) {
+      final data = json.decode(resp.body);
+      if (data['found'] == true) {
+        return {
+          'score': data['score'],
+          'date': data['date'],
+          'timestamp': data['timestamp'],
+        };
+      }
+      return null;
+    }
+    throw Exception('Failed to get last wellness log (${resp.statusCode})');
   }
 
   // Forum
@@ -146,7 +229,12 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/forum');
     final resp = await http.get(
       uri,
-      headers: _buildHeaders(jsonContent: false, token: token, method: 'GET', url: uri.toString()),
+      headers: _buildHeaders(
+        jsonContent: false,
+        token: token,
+        method: 'GET',
+        url: uri.toString(),
+      ),
     );
     if (resp.statusCode == 200) {
       final parsed = json.decode(resp.body);
@@ -161,7 +249,12 @@ class ApiService {
     final body = {'text': text, if (imageUrl != null) 'imageUrl': imageUrl};
     final resp = await http.post(
       uri,
-      headers: _buildHeaders(jsonContent: true, token: token, method: 'POST', url: uri.toString()),
+      headers: _buildHeaders(
+        jsonContent: true,
+        token: token,
+        method: 'POST',
+        url: uri.toString(),
+      ),
       body: json.encode(body),
     );
     if (resp.statusCode != 200 && resp.statusCode != 201)
@@ -173,7 +266,12 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/forum/$postId/like');
     final resp = await http.post(
       uri,
-      headers: _buildHeaders(jsonContent: false, token: token, method: 'POST', url: uri.toString()),
+      headers: _buildHeaders(
+        jsonContent: false,
+        token: token,
+        method: 'POST',
+        url: uri.toString(),
+      ),
     );
     if (resp.statusCode != 200 && resp.statusCode != 201)
       throw Exception('Failed to like post (${resp.statusCode})');
@@ -184,7 +282,12 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/forum/$postId/comments');
     final resp = await http.post(
       uri,
-      headers: _buildHeaders(jsonContent: true, token: token, method: 'POST', url: uri.toString()),
+      headers: _buildHeaders(
+        jsonContent: true,
+        token: token,
+        method: 'POST',
+        url: uri.toString(),
+      ),
       body: json.encode({'text': text}),
     );
     if (resp.statusCode != 200 && resp.statusCode != 201)
@@ -196,7 +299,12 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/forum/upload');
     final resp = await http.post(
       uri,
-      headers: _buildHeaders(jsonContent: true, token: token, method: 'POST', url: uri.toString()),
+      headers: _buildHeaders(
+        jsonContent: true,
+        token: token,
+        method: 'POST',
+        url: uri.toString(),
+      ),
       body: json.encode({'filename': filename, 'data': base64Data}),
     );
     if (resp.statusCode == 200) {
@@ -214,7 +322,12 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/profile');
     final resp = await http.get(
       uri,
-      headers: _buildHeaders(jsonContent: false, token: token, method: 'GET', url: uri.toString()),
+      headers: _buildHeaders(
+        jsonContent: false,
+        token: token,
+        method: 'GET',
+        url: uri.toString(),
+      ),
     );
     if (resp.statusCode == 200) {
       return json.decode(resp.body) as Map<String, dynamic>;
@@ -254,7 +367,8 @@ class ApiService {
           ? resp.body
           : resp.body.replaceAll(RegExp(r'<[^>]*>'), ' ').trim();
     }
-    final msg = 'Failed to create Razorpay order (${resp.statusCode}) at ${uri.toString()}: ${bodyPreview.length > 400 ? bodyPreview.substring(0, 400) + "..." : bodyPreview}';
+    final msg =
+        'Failed to create Razorpay order (${resp.statusCode}) at ${uri.toString()}: ${bodyPreview.length > 400 ? bodyPreview.substring(0, 400) + "..." : bodyPreview}';
     throw Exception(msg);
   }
 
@@ -286,7 +400,9 @@ class ApiService {
             ? resp.body
             : resp.body.replaceAll(RegExp(r'<[^>]*>'), ' ').trim();
       }
-      throw Exception('Payment verification failed (${resp.statusCode}) at ${uri.toString()}: ${bodyPreview.length > 400 ? bodyPreview.substring(0, 400) + "..." : bodyPreview}');
+      throw Exception(
+        'Payment verification failed (${resp.statusCode}) at ${uri.toString()}: ${bodyPreview.length > 400 ? bodyPreview.substring(0, 400) + "..." : bodyPreview}',
+      );
     }
   }
 }

@@ -5,12 +5,74 @@ const { FieldValue } = require('firebase-admin/firestore');
 module.exports = (db, authMiddleware) => {
   const router = express.Router();
 
+  // Get the last wellness log for the user
+  router.get('/last', authMiddleware, async (req, res) => {
+    const uid = req.user.uid;
+    try {
+      const snapshot = await db.collection('users').doc(uid).collection('happiness')
+        .orderBy('ts', 'desc')
+        .limit(1)
+        .get();
+      
+      if (snapshot.empty) {
+        return res.json({ found: false });
+      }
+      
+      const doc = snapshot.docs[0];
+      const data = doc.data();
+      // Convert Firestore Timestamp to ISO string
+      const timestamp = data.ts ? data.ts.toDate().toISOString() : null;
+      
+      res.json({
+        found: true,
+        score: data.score,
+        date: data.date,
+        timestamp: timestamp
+      });
+    } catch (err) {
+      console.error('HAPPINESS GET LAST ERROR', { uid, error: err });
+      res.status(500).json({ error: 'failed', details: err && err.message ? err.message : String(err) });
+    }
+  });
+
   // Record happiness for the day
   router.post('/', authMiddleware, async (req, res) => {
     const uid = req.user.uid;
     const { score, date } = req.body;
     if (typeof score !== 'number' || score < 1 || score > 10) return res.status(400).json({ error: 'score 1-10 required' });
     const day = date || new Date().toISOString().slice(0, 10);
+    
+    // Check if user already logged today (within 24 hours)
+    try {
+      const lastSnapshot = await db.collection('users').doc(uid).collection('happiness')
+        .orderBy('ts', 'desc')
+        .limit(1)
+        .get();
+      
+      if (!lastSnapshot.empty) {
+        const lastData = lastSnapshot.docs[0].data();
+        if (lastData.ts) {
+          const lastTime = lastData.ts.toDate();
+          const now = new Date();
+          const hoursDiff = (now - lastTime) / (1000 * 60 * 60);
+          
+          if (hoursDiff < 24) {
+            const hoursRemaining = Math.ceil(24 - hoursDiff);
+            return res.status(429).json({ 
+              error: 'rate_limited', 
+              message: `You can log wellness again in ${hoursRemaining} hour${hoursRemaining === 1 ? '' : 's'}`,
+              hoursRemaining: hoursRemaining,
+              lastScore: lastData.score,
+              lastTimestamp: lastData.ts.toDate().toISOString()
+            });
+          }
+        }
+      }
+    } catch (checkErr) {
+      console.error('HAPPINESS RATE CHECK ERROR', { uid, error: checkErr });
+      // Continue with the save if rate check fails
+    }
+    
     try {
     console.log('HAPPINESS POST', { uid, score, date: day });
     // include uid in the stored document for easier per-user queries

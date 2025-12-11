@@ -587,12 +587,14 @@ class TrekSpeedDialFAB extends StatefulWidget {
   final VoidCallback? onImportGPX;
   final VoidCallback? onRecordTrack;
   final VoidCallback? onDrawPath;
+  final VoidCallback? onSubmitPlace;
 
   const TrekSpeedDialFAB({
     super.key,
     this.onImportGPX,
     this.onRecordTrack,
     this.onDrawPath,
+    this.onSubmitPlace,
   });
 
   @override
@@ -646,6 +648,16 @@ class _TrekSpeedDialFABState extends State<TrekSpeedDialFAB>
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
+                    _SpeedDialOption(
+                      label: 'Submit Place',
+                      icon: Icons.add_location_alt,
+                      color: AppColors.success,
+                      onTap: () {
+                        _toggle();
+                        widget.onSubmitPlace?.call();
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
                     _SpeedDialOption(
                       label: 'Import GPX',
                       icon: Icons.upload_file,

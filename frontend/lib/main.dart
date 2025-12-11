@@ -11,6 +11,7 @@ import 'firebase_options.dart';
 import 'services/auth_service.dart';
 import 'services/session_manager.dart';
 import 'services/notification_service.dart';
+import 'services/location_tracking_service.dart';
 import 'screens/splash_wrapper.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
@@ -40,6 +41,9 @@ Future<void> main() async {
   
   // Initialize notification service
   await NotificationService.initialize();
+  
+  // Initialize location permission at startup
+  await LocationTrackingService.initializePermission();
   
   // Enable persistent auth - keeps user signed in (web only)
   // `setPersistence` is a web-only API; guard it to avoid runtime errors on mobile.

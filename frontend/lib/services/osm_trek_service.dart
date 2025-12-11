@@ -307,12 +307,13 @@ out body geom;
     final category = forceCategory ?? _determineCategory(tags);
     final difficulty = _determineDifficulty(tags, category);
     final estimatedTime = distance > 0 ? (distance / 83.3).round().clamp(5, 480) : 30;
+    final imageUrl = _getCategoryImageUrl(category, tags);
 
     return Trek(
       id: 'osm_${element['id']}',
       title: name,
       description: _generateDescription(tags, category),
-      imageUrl: null,
+      imageUrl: imageUrl,
       distance: distance,
       estimatedTimeMinutes: estimatedTime,
       difficulty: difficulty,
@@ -367,7 +368,7 @@ out body geom;
     if (historic != null) return 'Historic ${_capitalize(historic.replaceAll('_', ' '))}';
     if (natural == 'peak') return 'Peak';
     if (tags['waterway'] == 'waterfall') return 'Waterfall';
-    if (highway == 'footway') return 'Walking Path';
+    if (highway == 'footway') return 'Jogging Path';
     if (highway == 'path') return 'Trail';
     if (highway == 'track') return 'Nature Track';
     if (highway == 'cycleway') return 'Cycling Path';
@@ -430,13 +431,13 @@ out body geom;
       return TrekCategory.trekkingPoint;
     }
 
-    // Nature
-    if (leisure == 'park' || leisure == 'nature_reserve') {
+    // Nature / jogging paths
+    if (leisure == 'park' || leisure == 'nature_reserve' || highway == 'footway') {
       return TrekCategory.natureWalk;
     }
 
-    // Default walking
-    return TrekCategory.walkingPath;
+    // Default to nature/jogging
+    return TrekCategory.natureWalk;
   }
 
   TrekDifficulty _determineDifficulty(Map<String, dynamic> tags, TrekCategory category) {
@@ -496,10 +497,7 @@ out body geom;
         parts.add('Trekking trail for hiking enthusiasts.');
         break;
       case TrekCategory.natureWalk:
-        parts.add('Nature area perfect for peaceful walks.');
-        break;
-      case TrekCategory.walkingPath:
-        parts.add('Walking path for a pleasant stroll.');
+        parts.add('Nature area perfect for jogging and peaceful walks.');
         break;
       case TrekCategory.sportsClub:
         parts.add('Sports club for team activities and training.');
@@ -534,6 +532,128 @@ out body geom;
       if (tags[key] != null) result.add(tags[key] as String);
     }
     return result.take(5).toList();
+  }
+
+  /// Generate an appropriate image URL based on category and tags
+  /// Uses curated, professional images from Unsplash (direct URLs)
+  String _getCategoryImageUrl(TrekCategory category, Map<String, dynamic> tags) {
+    // Using direct Unsplash image URLs (not the deprecated source API)
+    // These are curated, high-quality images relevant to each category
+    
+    final sport = tags['sport'] as String?;
+    final leisure = tags['leisure'] as String?;
+    final tourism = tags['tourism'] as String?;
+    final natural = tags['natural'] as String?;
+    final historic = tags['historic'] as String?;
+    
+    // Swimming pool - actual pool image
+    if (sport == 'swimming' || category == TrekCategory.swimmingPool) {
+      return 'https://images.unsplash.com/photo-1576610616656-d3aa5d1f4534?w=800&h=600&fit=crop';
+    }
+    
+    // Yoga/wellness - meditation/yoga image
+    if (sport == 'yoga' || category == TrekCategory.yogaCenter) {
+      return 'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=800&h=600&fit=crop';
+    }
+    
+    // Tennis court
+    if (sport == 'tennis') {
+      return 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=800&h=600&fit=crop';
+    }
+    
+    // Basketball court
+    if (sport == 'basketball') {
+      return 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=800&h=600&fit=crop';
+    }
+    
+    // Soccer/football field
+    if (sport == 'soccer' || sport == 'football') {
+      return 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800&h=600&fit=crop';
+    }
+    
+    // Gym/fitness center
+    if (sport == 'gym' || sport == 'fitness' || category == TrekCategory.gym || category == TrekCategory.fitnessCenter) {
+      return 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=800&h=600&fit=crop';
+    }
+    
+    // Park - green park with trees
+    if (leisure == 'park') {
+      return 'https://images.unsplash.com/photo-1519331379826-f10be5486c6f?w=800&h=600&fit=crop';
+    }
+    
+    // Garden - botanical garden
+    if (leisure == 'garden') {
+      return 'https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=800&h=600&fit=crop';
+    }
+    
+    // Nature reserve - wildlife/forest
+    if (leisure == 'nature_reserve') {
+      return 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800&h=600&fit=crop';
+    }
+    
+    // Viewpoint - scenic overlook
+    if (tourism == 'viewpoint') {
+      return 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&h=600&fit=crop';
+    }
+    
+    // Museum - museum building/interior
+    if (tourism == 'museum') {
+      return 'https://images.unsplash.com/photo-1554907984-15263bfd63bd?w=800&h=600&fit=crop';
+    }
+    
+    // Tourist attraction
+    if (tourism == 'attraction') {
+      return 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800&h=600&fit=crop';
+    }
+    
+    // Mountain peak
+    if (natural == 'peak') {
+      return 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=800&h=600&fit=crop';
+    }
+    
+    // Water/waterfall/river
+    if (natural == 'water' || tags['waterway'] != null) {
+      return 'https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=800&h=600&fit=crop';
+    }
+    
+    // Historic monument
+    if (historic != null) {
+      return 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?w=800&h=600&fit=crop';
+    }
+    
+    // Category-based images with professional, relevant photos
+    switch (category) {
+      case TrekCategory.trekkingPoint:
+        // Hiking trail in mountains
+        return 'https://images.unsplash.com/photo-1551632811-561732d1e306?w=800&h=600&fit=crop';
+      case TrekCategory.natureWalk:
+        // Nature path/jogging trail through forest
+        return 'https://images.unsplash.com/photo-1476611317561-60117649dd94?w=800&h=600&fit=crop';
+      case TrekCategory.cyclePath:
+        // Cycling path with bike
+        return 'https://images.unsplash.com/photo-1541625602330-2277a4c46182?w=800&h=600&fit=crop';
+      case TrekCategory.pointOfInterest:
+        // Landmark/scenic spot
+        return 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=800&h=600&fit=crop';
+      case TrekCategory.fitnessCenter:
+        // Modern gym equipment
+        return 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=800&h=600&fit=crop';
+      case TrekCategory.sportsClub:
+        // Sports facility
+        return 'https://images.unsplash.com/photo-1461896836934- voices08cbc?w=800&h=600&fit=crop';
+      case TrekCategory.gym:
+        // Gym with weights
+        return 'https://images.unsplash.com/photo-1571902943202-507ec2618e8f?w=800&h=600&fit=crop';
+      case TrekCategory.swimmingPool:
+        // Swimming pool
+        return 'https://images.unsplash.com/photo-1576610616656-d3aa5d1f4534?w=800&h=600&fit=crop';
+      case TrekCategory.yogaCenter:
+        // Yoga practice
+        return 'https://images.unsplash.com/photo-1545205597-3d9d02c29597?w=800&h=600&fit=crop';
+      case TrekCategory.artsCenter:
+        // Art gallery/studio
+        return 'https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=800&h=600&fit=crop';
+    }
   }
 
   double _calculateRouteDistance(List<GeoPoint> points) {

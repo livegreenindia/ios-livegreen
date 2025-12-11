@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/foundation.dart';
@@ -6,9 +7,8 @@ import '../wearable_admin_screen.dart';
 import '../premium/subscriptionpaymentpage.dart';
 import '../legal/privacy_policy_screen.dart';
 import '../legal/terms_of_service_screen.dart';
-import '../../services/api.dart';
+import '../../services/profile_service.dart';
 import '../../services/auth_service.dart';
-import '../../config/api.dart' as cfg;
 import '../../config/routes.dart';
 import '../../theme/app_theme.dart';
 
@@ -25,40 +25,85 @@ class _ProfilePageState extends State<ProfilePage> {
   Color get backgroundLight => AppColors.backgroundLight;
   Color get backgroundDark => AppColors.backgroundDark;
 
-  bool _loading = true;
+  bool _initialLoading = true;
   String? _error;
   Map<String, dynamic>? _profile;
+  StreamSubscription<Map<String, dynamic>?>? _profileSub;
+
+  // Stats
+  int _streak = 0;
+  int _completedActivities = 0;
+  int _wellnessScore = 0;
+  bool _statsLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    _subscribeToProfile();
+    _loadStats();
   }
 
-  Future<void> _loadProfile() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  @override
+  void dispose() {
+    _profileSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadStats() async {
     try {
-      final api = ApiService(baseUrl: cfg.apiBaseUrl);
-      _profile = await api.getProfile();
+      final stats = await ProfileService.getProfileStats();
+      if (mounted) {
+        setState(() {
+          _streak = stats['streak'] ?? 0;
+          _completedActivities = stats['completedActivities'] ?? 0;
+          _wellnessScore = stats['wellnessScore'] ?? 0;
+          _statsLoading = false;
+        });
+      }
     } catch (e) {
-      _error = e.toString();
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      debugPrint('Error loading stats: $e');
+      if (mounted) {
+        setState(() => _statsLoading = false);
+      }
     }
+  }
+
+  void _subscribeToProfile() {
+    _profileSub = ProfileService.profileStream().listen(
+      (profileData) {
+        if (mounted) {
+          setState(() {
+            _profile = profileData;
+            _initialLoading = false;
+            _error = null;
+          });
+        }
+      },
+      onError: (error) {
+        if (mounted) {
+          setState(() {
+            _error = error.toString();
+            _initialLoading = false;
+          });
+        }
+      },
+    );
+  }
+
+  Future<void> _refreshProfile() async {
+    // For pull-to-refresh, reload stats
+    await _loadStats();
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    if (_loading) {
+    if (_initialLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    if (_error != null) {
+    if (_error != null && _profile == null) {
       return Scaffold(
         body: Center(
           child: Column(
@@ -67,7 +112,14 @@ class _ProfilePageState extends State<ProfilePage> {
               Text('Error: $_error'),
               const SizedBox(height: 8),
               ElevatedButton(
-                onPressed: _loadProfile,
+                onPressed: () {
+                  _profileSub?.cancel();
+                  setState(() {
+                    _initialLoading = true;
+                    _error = null;
+                  });
+                  _subscribeToProfile();
+                },
                 child: const Text('Retry'),
               ),
             ],
@@ -77,22 +129,23 @@ class _ProfilePageState extends State<ProfilePage> {
     }
 
     // Extracting backend data safely - check all possible name fields
-    final name = _profile?['name'] ?? 
-                 _profile?['displayName'] ?? 
-                 _profile?['profile']?['name'] ??
-                 _profile?['profile']?['displayName'] ??
-                 _profile?['email']?.toString().split('@').first ?? 
-                 'User';
+    final name =
+        _profile?['name'] ??
+        _profile?['displayName'] ??
+        _profile?['profile']?['name'] ??
+        _profile?['profile']?['displayName'] ??
+        _profile?['email']?.toString().split('@').first ??
+        'User';
     final photoURL = _profile?['photoURL'] ?? _profile?['profile']?['photoURL'];
-    // All features are now free - no premium checks needed
-    final bool isPremium = true; // Always true - all features accessible
+    // Check premium status from profile - defaults to false
+    final bool isPremium = _profile?['plan'] == 'Premium';
     // integration status is shown in settings section
 
     return Scaffold(
       backgroundColor: isDark ? backgroundDark : backgroundLight,
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: _loadProfile,
+          onRefresh: _refreshProfile,
           color: primaryColor,
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -122,33 +175,44 @@ class _ProfilePageState extends State<ProfilePage> {
                   ],
                 ),
                 const SizedBox(height: 24),
-                
+
                 // Profile Avatar Card
-                _buildProfileHeader(context, name, _profile?['email'] ?? '-', photoURL),
+                _buildProfileHeader(
+                  context,
+                  name,
+                  _profile?['email'] ?? '-',
+                  photoURL,
+                  isPremium,
+                ),
                 const SizedBox(height: 24),
-                
+
                 // Quick Stats
                 _buildQuickStats(context),
                 const SizedBox(height: 24),
-                
+
                 // Account Settings Section
                 _buildSettingsSection(context),
                 const SizedBox(height: 24),
-                
+
                 // Support Card
                 _planCard(context, isPremium),
                 const SizedBox(height: 24),
-                
+
                 // Logout Button
                 _buildLogoutButton(context),
                 const SizedBox(height: 16),
-                
+
                 // Debug: quick access to wearable admin (only in debug builds)
                 if (kDebugMode) ...[
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     onPressed: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const WearableAdminScreen()));
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const WearableAdminScreen(),
+                        ),
+                      );
                     },
                     icon: const Icon(Icons.watch, size: 18),
                     label: const Text('Wearable Admin (debug)'),
@@ -167,7 +231,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   void _showSettingsMenu(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     showModalBottomSheet(
       context: context,
       backgroundColor: isDark ? AppColors.surfaceDark : Colors.white,
@@ -195,9 +259,12 @@ class _ProfilePageState extends State<ProfilePage> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => const PrivacyPolicyScreen(),
-                  ));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const PrivacyPolicyScreen(),
+                    ),
+                  );
                 },
               ),
               ListTile(
@@ -206,9 +273,12 @@ class _ProfilePageState extends State<ProfilePage> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => const TermsOfServiceScreen(),
-                  ));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const TermsOfServiceScreen(),
+                    ),
+                  );
                 },
               ),
               ListTile(
@@ -226,23 +296,30 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildProfileHeader(BuildContext context, String name, String email, String? photoURL) {
+  Widget _buildProfileHeader(
+    BuildContext context,
+    String name,
+    String email,
+    String? photoURL,
+    bool isPremium,
+  ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: isDark 
-            ? [primaryColor.withOpacity(0.2), primaryColor.withOpacity(0.1)]
-            : [primaryColor.withOpacity(0.15), primaryColor.withOpacity(0.05)],
+          colors: isDark
+              ? [primaryColor.withOpacity(0.2), primaryColor.withOpacity(0.1)]
+              : [
+                  primaryColor.withOpacity(0.15),
+                  primaryColor.withOpacity(0.05),
+                ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(AppRadius.xl),
-        border: Border.all(
-          color: primaryColor.withOpacity(0.2),
-        ),
+        border: Border.all(color: primaryColor.withOpacity(0.2)),
       ),
       child: Row(
         children: [
@@ -263,12 +340,13 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             child: ClipOval(
               child: photoURL != null && photoURL.isNotEmpty
-                ? Image.network(
-                    photoURL,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _buildAvatarPlaceholder(name, isDark),
-                  )
-                : _buildAvatarPlaceholder(name, isDark),
+                  ? Image.network(
+                      photoURL,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) =>
+                          _buildAvatarPlaceholder(name, isDark),
+                    )
+                  : _buildAvatarPlaceholder(name, isDark),
             ),
           ),
           const SizedBox(width: 16),
@@ -299,22 +377,33 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
-                    color: primaryColor.withOpacity(0.2),
+                    color: isPremium
+                        ? Colors.amber.withOpacity(0.2)
+                        : primaryColor.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.verified, size: 14, color: primaryColor),
+                      Icon(
+                        isPremium ? Icons.workspace_premium : Icons.verified,
+                        size: 14,
+                        color: isPremium ? Colors.amber.shade700 : primaryColor,
+                      ),
                       const SizedBox(width: 4),
                       Text(
-                        'Free Plan',
+                        isPremium ? 'Supporter 💚' : 'Free Plan',
                         style: GoogleFonts.manrope(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: primaryColor,
+                          color: isPremium
+                              ? Colors.amber.shade700
+                              : primaryColor,
                         ),
                       ),
                     ],
@@ -329,10 +418,14 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildAvatarPlaceholder(String name, bool isDark) {
-    final initials = name.isNotEmpty 
-      ? name.split(' ').take(2).map((e) => e.isNotEmpty ? e[0].toUpperCase() : '').join()
-      : '?';
-    
+    final initials = name.isNotEmpty
+        ? name
+              .split(' ')
+              .take(2)
+              .map((e) => e.isNotEmpty ? e[0].toUpperCase() : '')
+              .join()
+        : '?';
+
     return Container(
       color: primaryColor,
       child: Center(
@@ -351,18 +444,48 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildQuickStats(BuildContext context) {
     return Row(
       children: [
-        Expanded(child: _buildStatCard(context, Icons.local_fire_department, 'Streak', '7 days', Colors.orange)),
+        Expanded(
+          child: _buildStatCard(
+            context,
+            Icons.local_fire_department,
+            'Streak',
+            _statsLoading ? '...' : '$_streak ${_streak == 1 ? 'day' : 'days'}',
+            Colors.orange,
+          ),
+        ),
         const SizedBox(width: 12),
-        Expanded(child: _buildStatCard(context, Icons.check_circle, 'Completed', '42', primaryColor)),
+        Expanded(
+          child: _buildStatCard(
+            context,
+            Icons.check_circle,
+            'Completed',
+            _statsLoading ? '...' : '$_completedActivities',
+            primaryColor,
+          ),
+        ),
         const SizedBox(width: 12),
-        Expanded(child: _buildStatCard(context, Icons.emoji_events, 'Score', '85%', Colors.amber)),
+        Expanded(
+          child: _buildStatCard(
+            context,
+            Icons.emoji_events,
+            'Score',
+            _statsLoading ? '...' : '$_wellnessScore%',
+            Colors.amber,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildStatCard(BuildContext context, IconData icon, String label, String value, Color color) {
+  Widget _buildStatCard(
+    BuildContext context,
+    IconData icon,
+    String label,
+    String value,
+    Color color,
+  ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
       decoration: BoxDecoration(
@@ -403,7 +526,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _buildSettingsSection(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Container(
       decoration: BoxDecoration(
         color: isDark ? AppColors.surfaceDark : Colors.white,
@@ -425,12 +548,17 @@ class _ProfilePageState extends State<ProfilePage> {
             'Connected',
             primaryColor,
             onTap: () {
-              Navigator.push(context, MaterialPageRoute(
-                builder: (_) => const WearableAdminScreen(),
-              ));
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const WearableAdminScreen()),
+              );
             },
           ),
-          Divider(height: 1, indent: 56, color: isDark ? Colors.white10 : Colors.black12),
+          Divider(
+            height: 1,
+            indent: 56,
+            color: isDark ? Colors.white10 : Colors.black12,
+          ),
           _buildSettingsTile(
             context,
             Icons.notifications_outlined,
@@ -438,7 +566,11 @@ class _ProfilePageState extends State<ProfilePage> {
             'Enabled',
             Colors.blue,
           ),
-          Divider(height: 1, indent: 56, color: isDark ? Colors.white10 : Colors.black12),
+          Divider(
+            height: 1,
+            indent: 56,
+            color: isDark ? Colors.white10 : Colors.black12,
+          ),
           _buildSettingsTile(
             context,
             Icons.dark_mode_outlined,
@@ -451,9 +583,16 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildSettingsTile(BuildContext context, IconData icon, String title, String subtitle, Color iconColor, {VoidCallback? onTap}) {
+  Widget _buildSettingsTile(
+    BuildContext context,
+    IconData icon,
+    String title,
+    String subtitle,
+    Color iconColor, {
+    VoidCallback? onTap,
+  }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return ListTile(
       onTap: onTap,
       leading: Container(
@@ -494,10 +633,7 @@ class _ProfilePageState extends State<ProfilePage> {
         icon: const Icon(Icons.logout, size: 20),
         label: Text(
           'Sign Out',
-          style: GoogleFonts.manrope(
-            fontWeight: FontWeight.w600,
-            fontSize: 15,
-          ),
+          style: GoogleFonts.manrope(fontWeight: FontWeight.w600, fontSize: 15),
         ),
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.error,
@@ -533,8 +669,8 @@ class _ProfilePageState extends State<ProfilePage> {
               await AuthService().signOut();
               if (context.mounted) {
                 Navigator.pushNamedAndRemoveUntil(
-                  context, 
-                  AppRoutes.login, 
+                  context,
+                  AppRoutes.login,
                   (route) => false,
                 );
               }
@@ -606,9 +742,12 @@ class _ProfilePageState extends State<ProfilePage> {
           GestureDetector(
             onTap: () async {
               // Open the payment flow for voluntary contributions
-              Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const SubscriptionPaymentPage(isDonation: true),
-              ));
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      const SubscriptionPaymentPage(isDonation: true),
+                ),
+              );
             },
             child: Container(
               width: double.infinity,

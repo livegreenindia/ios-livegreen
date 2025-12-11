@@ -14,7 +14,6 @@ import '../../theme/app_theme.dart';
 import 'progress_refresh_notifier.dart';
 import 'package:provider/provider.dart';
 
-
 class ActivityPage extends StatefulWidget {
   const ActivityPage({super.key});
 
@@ -31,19 +30,24 @@ class _ActivityPageState extends State<ActivityPage> {
   String? _activitiesError;
   String? _wellnessProfile;
   String? _selectedTimeSlot; // Currently selected time slot filter
-  
+
+  // Wellness rate limiting state
+  int? _lastWellnessScore;
+  DateTime? _lastWellnessTime;
+  bool _wellnessLoading = true;
+
   // Progress tracking
   int _completedCount = 0;
   int _expectedCount = 0;
   int _completionPercent = 0;
   StreamSubscription<Map<String, dynamic>>? _progressSub;
-  
+
   // MBSR Timer state management
   final Map<String, bool> _timerRunning = {};
   final Map<String, int> _timerSeconds = {};
   final Map<String, Timer?> _activeTimers = {};
   final AudioPlayer _audioPlayer = AudioPlayer();
-  
+
   // MBSR Breathing exercise state
   final Map<String, String> _breathingRatio = {};
   final Map<String, bool> _breathingPaused = {};
@@ -54,7 +58,7 @@ class _ActivityPageState extends State<ActivityPage> {
   final Map<String, String> _breathingType = {};
   final AudioPlayer _breathingAudioPlayer = AudioPlayer();
   final AudioPlayer _phaseAudioPlayer = AudioPlayer();
-  
+
   // Theme-aware color getters
   Color get primaryColor => AppColors.primary;
   Color get backgroundLight => AppColors.backgroundLight;
@@ -128,8 +132,9 @@ class _ActivityPageState extends State<ActivityPage> {
           icon = Icons.nature_people;
       }
     }
-    
-    final activityId = activity['id'] ?? title.toLowerCase().replaceAll(' ', '_');
+
+    final activityId =
+        activity['id'] ?? title.toLowerCase().replaceAll(' ', '_');
     final completed = _completedCache[activityId] ?? false;
 
     Widget actionButton;
@@ -162,29 +167,39 @@ class _ActivityPageState extends State<ActivityPage> {
         onPressed: () async {
           final api = ApiService(baseUrl: cfg.apiBaseUrl);
           final messengerBefore = ScaffoldMessenger.maybeOf(context);
-          final notifierBefore = Provider.of<ProgressRefreshNotifier>(context, listen: false);
-          
+          final notifierBefore = Provider.of<ProgressRefreshNotifier>(
+            context,
+            listen: false,
+          );
+
           // Show immediate feedback
           setState(() {
             _completedCache[activityId] = true;
           });
-          
+
           try {
             final now = DateTime.now();
-            final localDate = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+            final localDate =
+                '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
             // Debug log for troubleshooting
-            debugPrint('[Activity] Completing activity: $activityId on $localDate');
-            
-            await api.completeActivity(activityId, {
-              'date': now.toIso8601String(),
-              'localDate': localDate,
-              'weight': activity['weight'] ?? 10, // Wellness activities use weight 10
-              'isWellnessActivity': activity['isWellnessActivity'] ?? false,
-            }).timeout(const Duration(seconds: 15));
-            
+            debugPrint(
+              '[Activity] Completing activity: $activityId on $localDate',
+            );
+
+            await api
+                .completeActivity(activityId, {
+                  'date': now.toIso8601String(),
+                  'localDate': localDate,
+                  'weight':
+                      activity['weight'] ??
+                      10, // Wellness activities use weight 10
+                  'isWellnessActivity': activity['isWellnessActivity'] ?? false,
+                })
+                .timeout(const Duration(seconds: 15));
+
             await CompletionStore.markCompleted(activityId);
             RecentDataStore.recordActivityComplete(100, DateTime.now());
-            
+
             if (!mounted) return;
             messengerBefore?.showSnackBar(
               SnackBar(
@@ -203,9 +218,10 @@ class _ActivityPageState extends State<ActivityPage> {
           } catch (e) {
             final errorStr = e.toString();
             debugPrint('[Activity] Error completing activity: $errorStr');
-            
+
             // Check if it's "already_completed" - this is actually success (edge case from prior completion)
-            if (errorStr.contains('already_completed') || errorStr.contains('409')) {
+            if (errorStr.contains('already_completed') ||
+                errorStr.contains('409')) {
               // Activity was already completed, just mark as done locally
               await CompletionStore.markCompleted(activityId);
               if (!mounted) return;
@@ -224,27 +240,29 @@ class _ActivityPageState extends State<ActivityPage> {
               );
               return;
             }
-            
+
             // Revert optimistic update on actual error
             if (mounted) {
               setState(() {
                 _completedCache[activityId] = false;
               });
             }
-            
+
             String userMessage = 'Could not complete activity';
             if (errorStr.contains('TimeoutException')) {
-              userMessage = 'Request timed out. Please check your internet connection';
+              userMessage =
+                  'Request timed out. Please check your internet connection';
             } else if (errorStr.contains('SocketException')) {
               userMessage = 'No internet connection. Please try again';
             } else if (errorStr.contains('FormatException')) {
               userMessage = 'Server error. Please try again later';
-            } else if (errorStr.contains('401') || errorStr.contains('Unauthorized')) {
+            } else if (errorStr.contains('401') ||
+                errorStr.contains('Unauthorized')) {
               userMessage = 'Session expired. Please sign in again';
             } else if (errorStr.contains('500')) {
               userMessage = 'Server error. Please try again later';
             }
-            
+
             if (!mounted) return;
             messengerBefore?.showSnackBar(
               SnackBar(
@@ -273,7 +291,9 @@ class _ActivityPageState extends State<ActivityPage> {
           backgroundColor: primaryColor,
           foregroundColor: Colors.white,
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         ),
         child: Row(
@@ -294,8 +314,6 @@ class _ActivityPageState extends State<ActivityPage> {
       );
     }
 
-    // Calculate eco impact for this activity
-    final ecoImpact = activity['ecoImpact'] ?? (activity['weight'] ?? 10) * 0.05;
     final category = activity['category'] as String?;
     final categoryColor = _getCategoryColor(category);
 
@@ -307,16 +325,16 @@ class _ActivityPageState extends State<ActivityPage> {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          gradient: completed 
-            ? LinearGradient(
-                colors: [
-                  Colors.green.shade50,
-                  Colors.green.shade50.withAlpha(100),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              )
-            : null,
+          gradient: completed
+              ? LinearGradient(
+                  colors: [
+                    Colors.green.shade50,
+                    Colors.green.shade50.withAlpha(100),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
           border: Border.all(
             color: completed ? Colors.green.shade200 : Colors.transparent,
             width: completed ? 1.5 : 0,
@@ -334,24 +352,37 @@ class _ActivityPageState extends State<ActivityPage> {
                   width: 56,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: completed 
-                        ? [Colors.green.shade100, Colors.green.shade50]
-                        : [categoryColor.withAlpha(40), categoryColor.withAlpha(20)],
+                      colors: completed
+                          ? [Colors.green.shade100, Colors.green.shade50]
+                          : [
+                              categoryColor.withAlpha(40),
+                              categoryColor.withAlpha(20),
+                            ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     borderRadius: BorderRadius.circular(16),
-                    boxShadow: completed ? null : [
-                      BoxShadow(
-                        color: categoryColor.withAlpha(30),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
+                    boxShadow: completed
+                        ? null
+                        : [
+                            BoxShadow(
+                              color: categoryColor.withAlpha(30),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
                   ),
                   child: Stack(
                     children: [
-                      Center(child: Icon(icon, color: completed ? Colors.green.shade700 : categoryColor, size: 28)),
+                      Center(
+                        child: Icon(
+                          icon,
+                          color: completed
+                              ? Colors.green.shade700
+                              : categoryColor,
+                          size: 28,
+                        ),
+                      ),
                       if (completed)
                         Positioned(
                           right: -2,
@@ -362,7 +393,11 @@ class _ActivityPageState extends State<ActivityPage> {
                               color: Colors.white,
                               shape: BoxShape.circle,
                             ),
-                            child: Icon(Icons.check_circle, color: Colors.green.shade600, size: 18),
+                            child: Icon(
+                              Icons.check_circle,
+                              color: Colors.green.shade600,
+                              size: 18,
+                            ),
                           ),
                         ),
                     ],
@@ -383,35 +418,14 @@ class _ActivityPageState extends State<ActivityPage> {
                                 fontSize: 15,
                                 height: 1.3,
                                 letterSpacing: -0.2,
-                                decoration: completed ? TextDecoration.lineThrough : null,
+                                decoration: completed
+                                    ? TextDecoration.lineThrough
+                                    : null,
                                 decorationColor: Colors.green.shade400,
                                 color: completed ? Colors.grey.shade600 : null,
                               ),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          // Eco impact badge
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: primaryColor.withAlpha(20),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.eco, size: 12, color: primaryColor),
-                                const SizedBox(width: 3),
-                                Text(
-                                  '${ecoImpact.toStringAsFixed(1)} kg',
-                                  style: GoogleFonts.manrope(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                    color: primaryColor,
-                                  ),
-                                ),
-                              ],
                             ),
                           ),
                         ],
@@ -427,55 +441,58 @@ class _ActivityPageState extends State<ActivityPage> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      // Show info icon for wellness activities with detailed information
-                      if (activity['isWellnessActivity'] == true &&
-                          (activity['description'] != null ||
-                              activity['tips'] != null ||
-                              activity['youtubeUrl'] != null))
-                        GestureDetector(
-                          onTap: () => _showActivityInfo(context, activity),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: primaryColor.withOpacity(0.08),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.info_outline,
-                                  color: primaryColor,
-                                  size: 14,
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          // Show info icon for wellness activities with detailed information
+                          if (activity['isWellnessActivity'] == true &&
+                              (activity['description'] != null ||
+                                  activity['tips'] != null ||
+                                  activity['youtubeUrl'] != null))
+                            GestureDetector(
+                              onTap: () => _showActivityInfo(context, activity),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
                                 ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'Details',
-                                  style: GoogleFonts.manrope(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: primaryColor,
-                                  ),
+                                decoration: BoxDecoration(
+                                  color: primaryColor.withOpacity(0.08),
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
-                              ],
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.info_outline,
+                                      color: primaryColor,
+                                      size: 14,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Details',
+                                      style: GoogleFonts.manrope(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: primaryColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                      const Spacer(),
-                      // action button (cached) inserted here
-                      actionButton,
+                          const Spacer(),
+                          // action button (cached) inserted here
+                          actionButton,
+                        ],
+                      ),
                     ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ],
         ),
-        ],
-      ),
       ),
     );
   }
@@ -556,7 +573,7 @@ class _ActivityPageState extends State<ActivityPage> {
                         ),
                       ],
                     ),
-                    
+
                     // Description
                     if (description != null) ...[
                       const SizedBox(height: 24),
@@ -578,7 +595,7 @@ class _ActivityPageState extends State<ActivityPage> {
                         ),
                       ),
                     ],
-                    
+
                     // Tips
                     if (tips != null && tips.isNotEmpty) ...[
                       const SizedBox(height: 24),
@@ -591,35 +608,39 @@ class _ActivityPageState extends State<ActivityPage> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      ...tips.map((tip) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  margin: const EdgeInsets.only(top: 6),
-                                  width: 6,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    color: _getCategoryColor(category),
-                                    shape: BoxShape.circle,
+                      ...tips.map(
+                        (tip) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                margin: const EdgeInsets.only(top: 6),
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: _getCategoryColor(category),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  tip.toString(),
+                                  style: GoogleFonts.manrope(
+                                    fontSize: 14,
+                                    color: isDark
+                                        ? Colors.white70
+                                        : Colors.black87,
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    tip.toString(),
-                                    style: GoogleFonts.manrope(
-                                      fontSize: 14,
-                                      color: isDark ? Colors.white70 : Colors.black87,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
-                    
+
                     // YouTube button
                     if (youtubeUrl != null) ...[
                       const SizedBox(height: 24),
@@ -743,12 +764,15 @@ class _ActivityPageState extends State<ActivityPage> {
         child: Row(
           children: sortedTimeSlots.map((timeSlot) {
             final isSelected = _selectedTimeSlot == timeSlot;
-            final currentTimeSlot = WellnessActivityService.getCurrentTimeSlot();
-            final isCurrent = timeSlot.toLowerCase().contains(currentTimeSlot.toLowerCase());
-            
+            final currentTimeSlot =
+                WellnessActivityService.getCurrentTimeSlot();
+            final isCurrent = timeSlot.toLowerCase().contains(
+              currentTimeSlot.toLowerCase(),
+            );
+
             // Extract short name (e.g., "Morning" from "Morning (6am-9am)")
             final shortName = timeSlot.split('(').first.trim();
-            
+
             return Padding(
               padding: const EdgeInsets.only(right: 10),
               child: InkWell(
@@ -759,11 +783,17 @@ class _ActivityPageState extends State<ActivityPage> {
                 },
                 borderRadius: BorderRadius.circular(20),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     gradient: isSelected
                         ? LinearGradient(
-                            colors: [primaryColor, primaryColor.withOpacity(0.85)],
+                            colors: [
+                              primaryColor,
+                              primaryColor.withOpacity(0.85),
+                            ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           )
@@ -771,9 +801,11 @@ class _ActivityPageState extends State<ActivityPage> {
                     color: isSelected ? null : Colors.grey.shade50,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: isSelected 
-                          ? primaryColor 
-                          : (isCurrent ? primaryColor.withOpacity(0.35) : Colors.grey.shade300),
+                      color: isSelected
+                          ? primaryColor
+                          : (isCurrent
+                                ? primaryColor.withOpacity(0.35)
+                                : Colors.grey.shade300),
                       width: isSelected ? 1.5 : 1,
                     ),
                     boxShadow: isSelected
@@ -804,10 +836,14 @@ class _ActivityPageState extends State<ActivityPage> {
                         shortName,
                         style: GoogleFonts.manrope(
                           fontSize: 13.5,
-                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                          color: isSelected 
-                              ? Colors.white 
-                              : (isCurrent ? primaryColor : Colors.grey.shade700),
+                          fontWeight: isSelected
+                              ? FontWeight.w700
+                              : FontWeight.w600,
+                          color: isSelected
+                              ? Colors.white
+                              : (isCurrent
+                                    ? primaryColor
+                                    : Colors.grey.shade700),
                           letterSpacing: -0.2,
                         ),
                       ),
@@ -856,7 +892,10 @@ class _ActivityPageState extends State<ActivityPage> {
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [primaryColor.withAlpha(30), primaryColor.withAlpha(15)],
+                  colors: [
+                    primaryColor.withAlpha(30),
+                    primaryColor.withAlpha(15),
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -898,12 +937,14 @@ class _ActivityPageState extends State<ActivityPage> {
               // Today's Progress Card
               _buildProgressCard(),
               const SizedBox(height: 16),
-              
+
               // Happiness Tracker Card (Nature-themed)
               Card(
                 elevation: 3,
                 shadowColor: primaryColor.withAlpha(30),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(18),
                   child: Column(
@@ -917,7 +958,11 @@ class _ActivityPageState extends State<ActivityPage> {
                               children: [
                                 Row(
                                   children: [
-                                    Icon(Icons.spa, size: 16, color: primaryColor),
+                                    Icon(
+                                      Icons.spa,
+                                      size: 16,
+                                      color: primaryColor,
+                                    ),
                                     const SizedBox(width: 6),
                                     Text(
                                       "Wellness Check",
@@ -942,7 +987,10 @@ class _ActivityPageState extends State<ActivityPage> {
                             ),
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: [
@@ -953,7 +1001,9 @@ class _ActivityPageState extends State<ActivityPage> {
                                 end: Alignment.bottomRight,
                               ),
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: primaryColor.withAlpha(50)),
+                              border: Border.all(
+                                color: primaryColor.withAlpha(50),
+                              ),
                             ),
                             child: Row(
                               children: [
@@ -975,18 +1025,70 @@ class _ActivityPageState extends State<ActivityPage> {
                           ),
                         ],
                       ),
+                      // Show last logged wellness info
+                      if (_lastWellnessScore != null && !_canLogWellness) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withAlpha(30),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.amber.withAlpha(80),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.access_time,
+                                color: Colors.amber.shade700,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Last logged: ${_getHappinessEmoji(_lastWellnessScore!)} $_lastWellnessScore/10',
+                                      style: GoogleFonts.manrope(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.amber.shade800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Next log available in $_hoursUntilNextLog hour${_hoursUntilNextLog == 1 ? '' : 's'}',
+                                      style: GoogleFonts.manrope(
+                                        fontSize: 11,
+                                        color: Colors.amber.shade700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       Slider(
                         min: 1,
                         max: 10,
                         value: _happiness.toDouble(),
-                        activeColor: primaryColor,
+                        activeColor: _canLogWellness
+                            ? primaryColor
+                            : Colors.grey,
                         inactiveColor: Colors.grey.shade200,
-                        onChanged: (value) {
-                          setState(() {
-                            _happiness = value.toInt();
-                          });
-                        },
+                        onChanged: _canLogWellness
+                            ? (value) {
+                                setState(() {
+                                  _happiness = value.toInt();
+                                });
+                              }
+                            : null,
                       ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1017,92 +1119,183 @@ class _ActivityPageState extends State<ActivityPage> {
                           color: Colors.transparent,
                           child: InkWell(
                             borderRadius: BorderRadius.circular(14),
-                            onTap: _happinessSubmitting
+                            onTap:
+                                (_happinessSubmitting ||
+                                    !_canLogWellness ||
+                                    _wellnessLoading)
                                 ? null
                                 : () async {
                                     setState(() {
                                       _happinessSubmitting = true;
                                     });
-                                    final api = ApiService(baseUrl: cfg.apiBaseUrl);
-                                    final messengerBefore = ScaffoldMessenger.maybeOf(context);
-                                    final notifierBefore = Provider.of<ProgressRefreshNotifier>(context, listen: false);
+                                    final api = ApiService(
+                                      baseUrl: cfg.apiBaseUrl,
+                                    );
+                                    final messengerBefore =
+                                        ScaffoldMessenger.maybeOf(context);
+                                    final notifierBefore =
+                                        Provider.of<ProgressRefreshNotifier>(
+                                          context,
+                                          listen: false,
+                                        );
                                     try {
-                                      await api.postHappiness(_happiness).timeout(const Duration(seconds: 10));
+                                      await api
+                                          .postHappiness(_happiness)
+                                          .timeout(const Duration(seconds: 10));
+                                      if (!mounted) return;
+                                      // Update local state after successful submission
+                                      setState(() {
+                                        _lastWellnessScore = _happiness;
+                                        _lastWellnessTime = DateTime.now();
+                                      });
+                                      messengerBefore?.showSnackBar(
+                                        SnackBar(
+                                          content: Row(
+                                            children: [
+                                              const Icon(
+                                                Icons.favorite,
+                                                color: Colors.white,
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Text(
+                                                'Thank you for sharing! Keep up the positivity 💚',
+                                              ),
+                                            ],
+                                          ),
+                                          backgroundColor: primaryColor,
+                                          duration: const Duration(seconds: 2),
+                                        ),
+                                      );
+                                      notifierBefore.triggerRefresh();
+                                    } on WellnessRateLimitException catch (e) {
+                                      // Handle rate limiting from server
+                                      if (!mounted) return;
+                                      setState(() {
+                                        if (e.lastScore != null)
+                                          _lastWellnessScore = e.lastScore;
+                                        if (e.lastTimestamp != null) {
+                                          _lastWellnessTime = DateTime.parse(
+                                            e.lastTimestamp!,
+                                          );
+                                        }
+                                      });
+                                      messengerBefore?.showSnackBar(
+                                        SnackBar(
+                                          content: Row(
+                                            children: [
+                                              const Icon(
+                                                Icons.access_time,
+                                                color: Colors.white,
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(child: Text(e.message)),
+                                            ],
+                                          ),
+                                          backgroundColor:
+                                              Colors.amber.shade700,
+                                          duration: const Duration(seconds: 3),
+                                        ),
+                                      );
+                                    } catch (e) {
+                                      String userMessage =
+                                          'Could not save happiness level';
+                                      if (e.toString().contains(
+                                        'TimeoutException',
+                                      )) {
+                                        userMessage =
+                                            'Request timed out. Please check your connection';
+                                      } else if (e.toString().contains(
+                                        'SocketException',
+                                      )) {
+                                        userMessage =
+                                            'No internet. Your happiness level will be saved when you\'re back online';
+                                      }
+
                                       if (!mounted) return;
                                       messengerBefore?.showSnackBar(
                                         SnackBar(
                                           content: Row(
-                                          children: [
-                                            const Icon(Icons.favorite, color: Colors.white),
-                                            const SizedBox(width: 12),
-                                            Text('Thank you for sharing! Keep up the positivity 💚'),
-                                          ],
+                                            children: [
+                                              const Icon(
+                                                Icons.warning_amber,
+                                                color: Colors.white,
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Text(userMessage),
+                                              ),
+                                            ],
+                                          ),
+                                          backgroundColor:
+                                              Colors.orange.shade600,
+                                          duration: const Duration(seconds: 4),
                                         ),
-                                        backgroundColor: primaryColor,
-                                        duration: const Duration(seconds: 2),
-                                      ),
-                                    );
-                                    notifierBefore.triggerRefresh();
-                                  } catch (e) {
-                                    String userMessage = 'Could not save happiness level';
-                                    if (e.toString().contains('TimeoutException')) {
-                                      userMessage = 'Request timed out. Please check your connection';
-                                    } else if (e.toString().contains('SocketException')) {
-                                      userMessage = 'No internet. Your happiness level will be saved when you\'re back online';
+                                      );
+                                    } finally {
+                                      if (mounted) {
+                                        setState(() {
+                                          _happinessSubmitting = false;
+                                        });
+                                      }
                                     }
-                                    
-                                    if (!mounted) return;
-                                    messengerBefore?.showSnackBar(
-                                      SnackBar(
-                                        content: Row(
-                                          children: [
-                                            const Icon(Icons.warning_amber, color: Colors.white),
-                                            const SizedBox(width: 12),
-                                            Expanded(child: Text(userMessage)),
-                                          ],
-                                        ),
-                                        backgroundColor: Colors.orange.shade600,
-                                        duration: const Duration(seconds: 4),
-                                      ),
-                                    );
-                                  } finally {
-                                    if (mounted) {
-                                      setState(() {
-                                        _happinessSubmitting = false;
-                                      });
-                                    }
-                                  }
-                                },
+                                  },
                             child: Container(
                               decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [AppColors.primaryLight, AppColors.primary],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
+                                gradient: _canLogWellness && !_wellnessLoading
+                                    ? LinearGradient(
+                                        colors: [
+                                          AppColors.primaryLight,
+                                          AppColors.primary,
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      )
+                                    : LinearGradient(
+                                        colors: [
+                                          Colors.grey.shade400,
+                                          Colors.grey.shade500,
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
                                 borderRadius: BorderRadius.circular(14),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: primaryColor.withAlpha(60),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
+                                boxShadow: _canLogWellness && !_wellnessLoading
+                                    ? [
+                                        BoxShadow(
+                                          color: primaryColor.withAlpha(60),
+                                          blurRadius: 10,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ]
+                                    : [],
                               ),
                               child: Center(
-                                child: _happinessSubmitting
+                                child:
+                                    (_happinessSubmitting || _wellnessLoading)
                                     ? const SizedBox(
                                         height: 20,
                                         width: 20,
-                                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2,
+                                        ),
                                       )
                                     : Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
                                         children: [
-                                          const Icon(Icons.spa, color: Colors.white, size: 18),
+                                          Icon(
+                                            _canLogWellness
+                                                ? Icons.spa
+                                                : Icons.lock_clock,
+                                            color: Colors.white,
+                                            size: 18,
+                                          ),
                                           const SizedBox(width: 8),
                                           Text(
-                                            'Log Wellness',
+                                            _canLogWellness
+                                                ? 'Log Wellness'
+                                                : 'Logged Today',
                                             style: GoogleFonts.manrope(
                                               fontWeight: FontWeight.w700,
                                               fontSize: 14,
@@ -1121,10 +1314,10 @@ class _ActivityPageState extends State<ActivityPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              
+
               // Time Slot Tabs
               _buildTimeSlotTabs(),
-              
+
               // Activities Section Header with personalized greeting
               Padding(
                 padding: const EdgeInsets.only(top: 4, bottom: 12),
@@ -1179,17 +1372,23 @@ class _ActivityPageState extends State<ActivityPage> {
                   ],
                 ),
               ),
-              
+
               // Error State
               if (_activitiesError != null)
                 Card(
                   elevation: 2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(24),
                     child: Column(
                       children: [
-                        Icon(Icons.cloud_off, size: 64, color: Colors.grey.shade400),
+                        Icon(
+                          Icons.cloud_off,
+                          size: 64,
+                          color: Colors.grey.shade400,
+                        ),
                         const SizedBox(height: 16),
                         Text(
                           'Unable to load activities',
@@ -1215,8 +1414,13 @@ class _ActivityPageState extends State<ActivityPage> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: primaryColor,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                         ),
                       ],
@@ -1227,12 +1431,18 @@ class _ActivityPageState extends State<ActivityPage> {
               else if (_activities.isEmpty && !_activitiesLoading)
                 Card(
                   elevation: 2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(32),
                     child: Column(
                       children: [
-                        Icon(Icons.eco, size: 64, color: primaryColor.withAlpha((0.5 * 255).round())),
+                        Icon(
+                          Icons.eco,
+                          size: 64,
+                          color: primaryColor.withAlpha((0.5 * 255).round()),
+                        ),
                         const SizedBox(height: 16),
                         Text(
                           'No activities available',
@@ -1284,13 +1494,15 @@ class _ActivityPageState extends State<ActivityPage> {
     if (filteredActivities.isEmpty) return [];
 
     final widgets = <Widget>[];
-    
+
     // Get time slot info
     final timeSlot = _selectedTimeSlot ?? 'Activities';
     final currentTimeSlot = WellnessActivityService.getCurrentTimeSlot();
-    final isCurrentSlot = timeSlot.toLowerCase().contains(currentTimeSlot.toLowerCase());
+    final isCurrentSlot = timeSlot.toLowerCase().contains(
+      currentTimeSlot.toLowerCase(),
+    );
     final timeSlotDescription = _getTimeSlotDescription(timeSlot);
-    
+
     // Time slot header with description
     widgets.add(
       Padding(
@@ -1301,18 +1513,26 @@ class _ActivityPageState extends State<ActivityPage> {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: isCurrentSlot 
-                          ? [primaryColor.withOpacity(0.18), primaryColor.withOpacity(0.08)]
+                      colors: isCurrentSlot
+                          ? [
+                              primaryColor.withOpacity(0.18),
+                              primaryColor.withOpacity(0.08),
+                            ]
                           : [Colors.grey.shade100, Colors.grey.shade50],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: isCurrentSlot ? primaryColor : Colors.grey.shade300,
+                      color: isCurrentSlot
+                          ? primaryColor
+                          : Colors.grey.shade300,
                       width: 1.5,
                     ),
                   ),
@@ -1320,9 +1540,13 @@ class _ActivityPageState extends State<ActivityPage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        isCurrentSlot ? Icons.access_time_filled : Icons.access_time,
+                        isCurrentSlot
+                            ? Icons.access_time_filled
+                            : Icons.access_time,
                         size: 16,
-                        color: isCurrentSlot ? primaryColor : Colors.grey.shade600,
+                        color: isCurrentSlot
+                            ? primaryColor
+                            : Colors.grey.shade600,
                       ),
                       const SizedBox(width: 6),
                       Text(
@@ -1330,14 +1554,19 @@ class _ActivityPageState extends State<ActivityPage> {
                         style: GoogleFonts.manrope(
                           fontSize: 13.5,
                           fontWeight: FontWeight.w700,
-                          color: isCurrentSlot ? primaryColor : Colors.grey.shade700,
+                          color: isCurrentSlot
+                              ? primaryColor
+                              : Colors.grey.shade700,
                           letterSpacing: -0.2,
                         ),
                       ),
                       if (isCurrentSlot) ...[
                         const SizedBox(width: 6),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: primaryColor,
                             borderRadius: BorderRadius.circular(8),
@@ -1368,7 +1597,9 @@ class _ActivityPageState extends State<ActivityPage> {
                   style: GoogleFonts.manrope(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w500,
-                    color: isCurrentSlot ? primaryColor.withOpacity(0.85) : Colors.grey.shade600,
+                    color: isCurrentSlot
+                        ? primaryColor.withOpacity(0.85)
+                        : Colors.grey.shade600,
                     height: 1.4,
                     letterSpacing: -0.1,
                   ),
@@ -1387,11 +1618,11 @@ class _ActivityPageState extends State<ActivityPage> {
 
     return widgets;
   }
-  
+
   /// Get description for time slot to show purpose
   String? _getTimeSlotDescription(String timeSlot) {
     final lowerSlot = timeSlot.toLowerCase();
-    
+
     if (lowerSlot.contains('morning')) {
       return '🌅 Start your day with energy and intention';
     } else if (lowerSlot.contains('mid-day') || lowerSlot.contains('midday')) {
@@ -1405,30 +1636,26 @@ class _ActivityPageState extends State<ActivityPage> {
     }
     return null;
   }
-  
+
   String _getHappinessEmoji(int level) {
     // Nature-themed wellness emojis
-    if (level <= 2) return '🥀';  // Wilted flower
-    if (level <= 4) return '🍂';  // Fallen leaf
-    if (level <= 6) return '🌱';  // Seedling
-    if (level <= 8) return '🌿';  // Herb
-    return '🌳';  // Full tree
+    if (level <= 2) return '🥀'; // Wilted flower
+    if (level <= 4) return '🍂'; // Fallen leaf
+    if (level <= 6) return '🌱'; // Seedling
+    if (level <= 8) return '🌿'; // Herb
+    return '🌳'; // Full tree
   }
 
   /// Build the progress card showing today's activity completion
   Widget _buildProgressCard() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final progressPercent = _completionPercent / 100;
-    
-    // Calculate eco impact based on completed activities
-    final co2Saved = (_completedCount * 0.5).toStringAsFixed(1); // kg CO2 per activity
-    final treesEquivalent = (_completedCount * 0.02).toStringAsFixed(2); // tree absorption rate
-    
+
     // Get emoji based on progress
     String progressEmoji;
     String progressMessage;
     Color progressColor;
-    
+
     if (_completionPercent >= 80) {
       progressEmoji = '🌳';
       progressMessage = 'Eco champion! You\'re making a real difference!';
@@ -1450,7 +1677,7 @@ class _ActivityPageState extends State<ActivityPage> {
       progressMessage = 'Start making the planet greener!';
       progressColor = const Color(0xFF81C784);
     }
-    
+
     return Card(
       elevation: 4,
       shadowColor: progressColor.withAlpha(60),
@@ -1468,10 +1695,7 @@ class _ActivityPageState extends State<ActivityPage> {
             stops: const [0.0, 0.4, 1.0],
           ),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: progressColor.withAlpha(40),
-            width: 1,
-          ),
+          border: Border.all(color: progressColor.withAlpha(40), width: 1),
         ),
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -1483,7 +1707,10 @@ class _ActivityPageState extends State<ActivityPage> {
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [progressColor.withAlpha(50), progressColor.withAlpha(25)],
+                      colors: [
+                        progressColor.withAlpha(50),
+                        progressColor.withAlpha(25),
+                      ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -1535,7 +1762,10 @@ class _ActivityPageState extends State<ActivityPage> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [progressColor, progressColor.withAlpha(200)],
@@ -1563,7 +1793,7 @@ class _ActivityPageState extends State<ActivityPage> {
               ],
             ),
             const SizedBox(height: 20),
-            
+
             // Progress bar with leaf decoration
             Stack(
               children: [
@@ -1572,40 +1802,29 @@ class _ActivityPageState extends State<ActivityPage> {
                   child: LinearProgressIndicator(
                     value: progressPercent,
                     minHeight: 12,
-                    backgroundColor: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+                    backgroundColor: isDark
+                        ? Colors.grey.shade800
+                        : Colors.grey.shade200,
                     valueColor: AlwaysStoppedAnimation<Color>(progressColor),
                   ),
                 ),
                 if (progressPercent > 0.1)
                   Positioned(
-                    left: (MediaQuery.of(context).size.width - 80) * progressPercent - 8,
+                    left:
+                        (MediaQuery.of(context).size.width - 80) *
+                            progressPercent -
+                        8,
                     top: -2,
-                    child: Icon(Icons.eco, size: 16, color: Colors.white.withAlpha(200)),
+                    child: Icon(
+                      Icons.eco,
+                      size: 16,
+                      color: Colors.white.withAlpha(200),
+                    ),
                   ),
               ],
             ),
-            const SizedBox(height: 16),
-            
-            // Eco Impact Stats Row
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isDark ? Colors.grey.shade800.withAlpha(100) : Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildEcoStat(Icons.cloud_outlined, '$co2Saved kg', 'CO₂ Saved', progressColor),
-                  Container(width: 1, height: 30, color: Colors.grey.shade300),
-                  _buildEcoStat(Icons.park_outlined, treesEquivalent, 'Trees Equiv.', progressColor),
-                  Container(width: 1, height: 30, color: Colors.grey.shade300),
-                  _buildEcoStat(Icons.water_drop_outlined, '${_completedCount * 2}L', 'Water Saved', progressColor),
-                ],
-              ),
-            ),
             const SizedBox(height: 12),
-            
+
             // Motivational message
             Row(
               children: [
@@ -1628,7 +1847,7 @@ class _ActivityPageState extends State<ActivityPage> {
       ),
     );
   }
-  
+
   Widget _buildEcoStat(IconData icon, String value, String label, Color color) {
     return Column(
       children: [
@@ -1655,13 +1874,13 @@ class _ActivityPageState extends State<ActivityPage> {
   }
 
   // ============== MBSR BREATHING EXERCISE METHODS ==============
-  
+
   /// Show MBSR Mindfulness Breathing Practice Dialog
   void _showMBSRBreathingDialog(String activityId, String activityTitle) {
     String selectedRatio = '4:4:4:4';
     String selectedType = 'box';
     int selectedDuration = 4;
-    
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1671,10 +1890,14 @@ class _ActivityPageState extends State<ActivityPage> {
             final bool isRunning = _timerRunning[activityId] ?? false;
             final bool isPaused = _breathingPaused[activityId] ?? false;
             final String currentPhase = _breathingPhase[activityId] ?? '';
-            final int remainingTotal = (_totalDurationSeconds[activityId] ?? 0) - (_elapsedSeconds[activityId] ?? 0);
-            
+            final int remainingTotal =
+                (_totalDurationSeconds[activityId] ?? 0) -
+                (_elapsedSeconds[activityId] ?? 0);
+
             return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
               backgroundColor: const Color(0xFF0D1F14),
               title: Row(
                 children: [
@@ -1716,10 +1939,14 @@ class _ActivityPageState extends State<ActivityPage> {
                         },
                         child: Container(
                           decoration: BoxDecoration(
-                            color: selectedType == 'box' ? primaryColor : const Color(0xFF1A3A2A),
+                            color: selectedType == 'box'
+                                ? primaryColor
+                                : const Color(0xFF1A3A2A),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: selectedType == 'box' ? primaryColor : Colors.grey[700]!,
+                              color: selectedType == 'box'
+                                  ? primaryColor
+                                  : Colors.grey[700]!,
                               width: selectedType == 'box' ? 2 : 1,
                             ),
                           ),
@@ -1729,7 +1956,10 @@ class _ActivityPageState extends State<ActivityPage> {
                             children: [
                               Row(
                                 children: [
-                                  Icon(Icons.crop_square, color: Colors.white.withOpacity(0.9)),
+                                  Icon(
+                                    Icons.crop_square,
+                                    color: Colors.white.withOpacity(0.9),
+                                  ),
                                   const SizedBox(width: 8),
                                   Text(
                                     'Box Breathing',
@@ -1762,27 +1992,39 @@ class _ActivityPageState extends State<ActivityPage> {
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: _mbsrRatioButton('4:4:4:4', selectedRatio, (val) {
-                                        setDialogState(() {
-                                          selectedRatio = val;
-                                        });
-                                      }),
+                                      child: _mbsrRatioButton(
+                                        '4:4:4:4',
+                                        selectedRatio,
+                                        (val) {
+                                          setDialogState(() {
+                                            selectedRatio = val;
+                                          });
+                                        },
+                                      ),
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
-                                      child: _mbsrRatioButton('5:5:5:5', selectedRatio, (val) {
-                                        setDialogState(() {
-                                          selectedRatio = val;
-                                        });
-                                      }),
+                                      child: _mbsrRatioButton(
+                                        '5:5:5:5',
+                                        selectedRatio,
+                                        (val) {
+                                          setDialogState(() {
+                                            selectedRatio = val;
+                                          });
+                                        },
+                                      ),
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
-                                      child: _mbsrRatioButton('6:6:6:6', selectedRatio, (val) {
-                                        setDialogState(() {
-                                          selectedRatio = val;
-                                        });
-                                      }),
+                                      child: _mbsrRatioButton(
+                                        '6:6:6:6',
+                                        selectedRatio,
+                                        (val) {
+                                          setDialogState(() {
+                                            selectedRatio = val;
+                                          });
+                                        },
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -1798,19 +2040,29 @@ class _ActivityPageState extends State<ActivityPage> {
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: _mbsrDurationButton('4 min', 4, selectedDuration, (val) {
-                                        setDialogState(() {
-                                          selectedDuration = val;
-                                        });
-                                      }),
+                                      child: _mbsrDurationButton(
+                                        '4 min',
+                                        4,
+                                        selectedDuration,
+                                        (val) {
+                                          setDialogState(() {
+                                            selectedDuration = val;
+                                          });
+                                        },
+                                      ),
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
-                                      child: _mbsrDurationButton('8 min', 8, selectedDuration, (val) {
-                                        setDialogState(() {
-                                          selectedDuration = val;
-                                        });
-                                      }),
+                                      child: _mbsrDurationButton(
+                                        '8 min',
+                                        8,
+                                        selectedDuration,
+                                        (val) {
+                                          setDialogState(() {
+                                            selectedDuration = val;
+                                          });
+                                        },
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -1830,10 +2082,14 @@ class _ActivityPageState extends State<ActivityPage> {
                         },
                         child: Container(
                           decoration: BoxDecoration(
-                            color: selectedType == '478' ? primaryColor : const Color(0xFF1A3A2A),
+                            color: selectedType == '478'
+                                ? primaryColor
+                                : const Color(0xFF1A3A2A),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: selectedType == '478' ? primaryColor : Colors.grey[700]!,
+                              color: selectedType == '478'
+                                  ? primaryColor
+                                  : Colors.grey[700]!,
                               width: selectedType == '478' ? 2 : 1,
                             ),
                           ),
@@ -1843,11 +2099,17 @@ class _ActivityPageState extends State<ActivityPage> {
                             children: [
                               Row(
                                 children: [
-                                  Icon(Icons.all_inclusive, color: selectedType == '478' ? Colors.white : primaryColor),
+                                  Icon(
+                                    Icons.all_inclusive,
+                                    color: selectedType == '478'
+                                        ? Colors.white
+                                        : primaryColor,
+                                  ),
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           '4:7:8 Relaxing Breath',
@@ -1861,7 +2123,9 @@ class _ActivityPageState extends State<ActivityPage> {
                                           'Deep relaxation and stress relief technique.',
                                           style: GoogleFonts.manrope(
                                             fontSize: 11,
-                                            color: Colors.white.withOpacity(0.7),
+                                            color: Colors.white.withOpacity(
+                                              0.7,
+                                            ),
                                           ),
                                         ),
                                       ],
@@ -1882,19 +2146,29 @@ class _ActivityPageState extends State<ActivityPage> {
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: _mbsrDurationButton('4 min', 4, selectedDuration, (val) {
-                                        setDialogState(() {
-                                          selectedDuration = val;
-                                        });
-                                      }),
+                                      child: _mbsrDurationButton(
+                                        '4 min',
+                                        4,
+                                        selectedDuration,
+                                        (val) {
+                                          setDialogState(() {
+                                            selectedDuration = val;
+                                          });
+                                        },
+                                      ),
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
-                                      child: _mbsrDurationButton('8 min', 8, selectedDuration, (val) {
-                                        setDialogState(() {
-                                          selectedDuration = val;
-                                        });
-                                      }),
+                                      child: _mbsrDurationButton(
+                                        '8 min',
+                                        8,
+                                        selectedDuration,
+                                        (val) {
+                                          setDialogState(() {
+                                            selectedDuration = val;
+                                          });
+                                        },
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -1951,14 +2225,20 @@ class _ActivityPageState extends State<ActivityPage> {
                                       width: 160,
                                       height: 160,
                                       child: CircularProgressIndicator(
-                                        value: _getMBSRBreathingProgress(activityId),
+                                        value: _getMBSRBreathingProgress(
+                                          activityId,
+                                        ),
                                         strokeWidth: 8,
                                         backgroundColor: Colors.grey[800],
-                                        valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              primaryColor,
+                                            ),
                                       ),
                                     ),
                                     Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
                                         Text(
                                           currentPhase,
@@ -2035,9 +2315,15 @@ class _ActivityPageState extends State<ActivityPage> {
                                     ),
                                     onPressed: () {
                                       if (isPaused) {
-                                        _resumeMBSRBreathing(activityId, setDialogState);
+                                        _resumeMBSRBreathing(
+                                          activityId,
+                                          setDialogState,
+                                        );
                                       } else {
-                                        _pauseMBSRBreathing(activityId, setDialogState);
+                                        _pauseMBSRBreathing(
+                                          activityId,
+                                          setDialogState,
+                                        );
                                       }
                                     },
                                   ),
@@ -2074,7 +2360,13 @@ class _ActivityPageState extends State<ActivityPage> {
                   ),
                   ElevatedButton(
                     onPressed: () {
-                      _startMBSRBreathing(activityId, selectedRatio, selectedType, selectedDuration, setDialogState);
+                      _startMBSRBreathing(
+                        activityId,
+                        selectedRatio,
+                        selectedType,
+                        selectedDuration,
+                        setDialogState,
+                      );
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: primaryColor,
@@ -2096,7 +2388,11 @@ class _ActivityPageState extends State<ActivityPage> {
     );
   }
 
-  Widget _mbsrRatioButton(String ratio, String selectedRatio, Function(String) onSelect) {
+  Widget _mbsrRatioButton(
+    String ratio,
+    String selectedRatio,
+    Function(String) onSelect,
+  ) {
     final isSelected = ratio == selectedRatio;
     return GestureDetector(
       onTap: () => onSelect(ratio),
@@ -2119,7 +2415,12 @@ class _ActivityPageState extends State<ActivityPage> {
     );
   }
 
-  Widget _mbsrDurationButton(String label, int minutes, int selectedDuration, Function(int) onSelect) {
+  Widget _mbsrDurationButton(
+    String label,
+    int minutes,
+    int selectedDuration,
+    Function(int) onSelect,
+  ) {
     final isSelected = minutes == selectedDuration;
     return GestureDetector(
       onTap: () => onSelect(minutes),
@@ -2148,9 +2449,15 @@ class _ActivityPageState extends State<ActivityPage> {
     return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
   }
 
-  void _startMBSRBreathing(String activityId, String ratio, String type, int durationMinutes, StateSetter setDialogState) async {
+  void _startMBSRBreathing(
+    String activityId,
+    String ratio,
+    String type,
+    int durationMinutes,
+    StateSetter setDialogState,
+  ) async {
     final totalSeconds = durationMinutes * 60;
-    
+
     setState(() {
       _timerRunning[activityId] = true;
       _breathingRatio[activityId] = ratio;
@@ -2163,45 +2470,60 @@ class _ActivityPageState extends State<ActivityPage> {
 
     // Play start sound
     try {
-      await _breathingAudioPlayer.play(AssetSource('sounds/bell_start.mp3'));
+      await _breathingAudioPlayer.play(
+        UrlSource('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3'),
+      );
     } catch (e) {
       // Audio not available, continue silently
+      debugPrint('Audio error: $e');
     }
 
-    _runMBSRBreathingCycle(activityId, ratio, type, totalSeconds, setDialogState);
+    _runMBSRBreathingCycle(
+      activityId,
+      ratio,
+      type,
+      totalSeconds,
+      setDialogState,
+    );
   }
 
-  void _runMBSRBreathingCycle(String activityId, String ratio, String type, int totalDuration, StateSetter setDialogState) {
+  void _runMBSRBreathingCycle(
+    String activityId,
+    String ratio,
+    String type,
+    int totalDuration,
+    StateSetter setDialogState,
+  ) {
     final parts = ratio.split(':').map(int.parse).toList();
-    final phases = type == '478' 
-        ? ['Breathe In', 'Hold', 'Breathe Out'] 
+    final phases = type == '478'
+        ? ['Breathe In', 'Hold', 'Breathe Out']
         : ['Breathe In', 'Hold', 'Breathe Out', 'Hold'];
     int phaseIndex = 0;
-    
+
     void nextPhase() {
       if (!mounted || !(_timerRunning[activityId] ?? false)) return;
-      
+
       if (_breathingPaused[activityId] ?? false) {
         Future.delayed(const Duration(milliseconds: 100), nextPhase);
         return;
       }
-      
+
       // Check if total duration reached
       final elapsed = _elapsedSeconds[activityId] ?? 0;
       if (elapsed >= totalDuration) {
         _onMBSRBreathingComplete(activityId);
         return;
       }
-      
+
       if (phaseIndex >= phases.length) {
         phaseIndex = 0;
       }
-      
+
       // Use modulo to safely access both arrays
       final safePhaseIndex = phaseIndex % phases.length;
       final duration = parts[safePhaseIndex % parts.length];
       final currentPhase = phases[safePhaseIndex];
-      
+
       setState(() {
         _breathingPhase[activityId] = currentPhase;
         _timerSeconds[activityId] = duration;
@@ -2210,33 +2532,48 @@ class _ActivityPageState extends State<ActivityPage> {
         _breathingPhase[activityId] = currentPhase;
         _timerSeconds[activityId] = duration;
       });
-      
+
       // Play phase-specific audio cues
       try {
         if (currentPhase == 'Breathe In') {
-          _phaseAudioPlayer.play(AssetSource('sounds/inhale.mp3'));
+          _phaseAudioPlayer.play(
+            UrlSource(
+              'https://www.soundjay.com/misc/sounds/bell-ringing-01.mp3',
+            ),
+          );
         } else if (currentPhase == 'Breathe Out') {
-          _phaseAudioPlayer.play(AssetSource('sounds/exhale.mp3'));
+          _phaseAudioPlayer.play(
+            UrlSource(
+              'https://www.soundjay.com/misc/sounds/bell-ringing-02.mp3',
+            ),
+          );
         } else if (currentPhase == 'Hold') {
-          _phaseAudioPlayer.play(AssetSource('sounds/hold.mp3'));
+          _phaseAudioPlayer.play(
+            UrlSource(
+              'https://www.soundjay.com/misc/sounds/bell-ringing-03.mp3',
+            ),
+          );
         }
       } catch (e) {
         // Audio not available, continue silently
+        debugPrint('Phase audio error: $e');
       }
-      
-      _activeTimers[activityId] = Timer.periodic(const Duration(seconds: 1), (timer) {
+
+      _activeTimers[activityId] = Timer.periodic(const Duration(seconds: 1), (
+        timer,
+      ) {
         if (!mounted || !(_timerRunning[activityId] ?? false)) {
           timer.cancel();
           return;
         }
-        
+
         if (_breathingPaused[activityId] ?? false) {
           return;
         }
-        
+
         final current = _timerSeconds[activityId] ?? 0;
         final elapsed = _elapsedSeconds[activityId] ?? 0;
-        
+
         // Update elapsed time
         setState(() {
           _elapsedSeconds[activityId] = elapsed + 1;
@@ -2244,7 +2581,7 @@ class _ActivityPageState extends State<ActivityPage> {
         setDialogState(() {
           _elapsedSeconds[activityId] = elapsed + 1;
         });
-        
+
         if (current <= 1) {
           timer.cancel();
           phaseIndex++;
@@ -2259,7 +2596,7 @@ class _ActivityPageState extends State<ActivityPage> {
         }
       });
     }
-    
+
     nextPhase();
   }
 
@@ -2269,18 +2606,19 @@ class _ActivityPageState extends State<ActivityPage> {
     final totalCycle = parts.reduce((a, b) => a + b);
     final current = _timerSeconds[activityId] ?? 0;
     final phase = _breathingPhase[activityId] ?? 'Breathe In';
-    
+
     int elapsed = 0;
     if (phase == 'Breathe In') {
       elapsed = parts[0] - current;
     } else if (phase == 'Hold' && parts.length > 3 && current > parts[2]) {
       elapsed = parts[0] + (parts[1] - current);
     } else if (phase == 'Breathe Out') {
-      elapsed = parts[0] + parts[1] + (parts.length > 2 ? parts[2] - current : 0);
+      elapsed =
+          parts[0] + parts[1] + (parts.length > 2 ? parts[2] - current : 0);
     } else if (phase == 'Hold' && parts.length > 3) {
       elapsed = parts[0] + parts[1] + parts[2] + (parts[3] - current);
     }
-    
+
     return (elapsed / totalCycle).clamp(0.0, 1.0);
   }
 
@@ -2330,7 +2668,7 @@ class _ActivityPageState extends State<ActivityPage> {
     } catch (e) {
       // Audio not available
     }
-    
+
     _stopMBSRBreathing(activityId);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -2346,7 +2684,7 @@ class _ActivityPageState extends State<ActivityPage> {
       ),
     );
   }
-  
+
   // ============== END MBSR BREATHING METHODS ==============
 
   @override
@@ -2356,6 +2694,7 @@ class _ActivityPageState extends State<ActivityPage> {
     _loadActivities();
     _loadProgress();
     _listenToProgress();
+    _loadLastWellnessLog();
   }
 
   @override
@@ -2369,6 +2708,54 @@ class _ActivityPageState extends State<ActivityPage> {
     _breathingAudioPlayer.dispose();
     _phaseAudioPlayer.dispose();
     super.dispose();
+  }
+
+  /// Load the last wellness log to check 24-hour restriction
+  Future<void> _loadLastWellnessLog() async {
+    final api = ApiService(baseUrl: cfg.apiBaseUrl);
+    try {
+      final lastLog = await api.getLastWellnessLog();
+      if (mounted) {
+        setState(() {
+          _wellnessLoading = false;
+          if (lastLog != null) {
+            _lastWellnessScore = lastLog['score'] as int?;
+            if (lastLog['timestamp'] != null) {
+              _lastWellnessTime = DateTime.parse(lastLog['timestamp']);
+            }
+            // Set slider to last score
+            if (_lastWellnessScore != null) {
+              _happiness = _lastWellnessScore!;
+            }
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading last wellness log: $e');
+      if (mounted) {
+        setState(() {
+          _wellnessLoading = false;
+        });
+      }
+    }
+  }
+
+  /// Check if user can log wellness (24 hours since last log)
+  bool get _canLogWellness {
+    if (_lastWellnessTime == null) return true;
+    final hoursSinceLastLog = DateTime.now()
+        .difference(_lastWellnessTime!)
+        .inHours;
+    return hoursSinceLastLog >= 24;
+  }
+
+  /// Get hours remaining until next wellness log allowed
+  int get _hoursUntilNextLog {
+    if (_lastWellnessTime == null) return 0;
+    final hoursSinceLastLog = DateTime.now()
+        .difference(_lastWellnessTime!)
+        .inHours;
+    return (24 - hoursSinceLastLog).clamp(0, 24);
   }
 
   /// Load current progress from service
@@ -2389,7 +2776,9 @@ class _ActivityPageState extends State<ActivityPage> {
 
   /// Listen to real-time progress updates
   void _listenToProgress() {
-    _progressSub = ProgressCalculatorService.progressStream().listen((progress) {
+    _progressSub = ProgressCalculatorService.progressStream().listen((
+      progress,
+    ) {
       if (mounted) {
         setState(() {
           _completedCount = progress['completedCount'] ?? 0;
@@ -2411,22 +2800,23 @@ class _ActivityPageState extends State<ActivityPage> {
 
   Future<void> _loadActivities() async {
     if (!mounted) return;
-    
+
     setState(() {
       _activitiesLoading = true;
       _activitiesError = null;
     });
-    
+
     try {
       // First, check if user has wellness profile
-      final hasWellnessProfile = await WellnessActivityService.hasWellnessProfile();
-      
+      final hasWellnessProfile =
+          await WellnessActivityService.hasWellnessProfile();
+
       List<Map<String, dynamic>> activities;
-      
+
       if (hasWellnessProfile) {
         // Load ALL wellness activities for the entire day (not just current time slot)
         activities = await WellnessActivityService.getAllDailyActivities();
-        
+
         // If no wellness activities (shouldn't happen), fallback to API
         if (activities.isEmpty) {
           final api = ApiService(baseUrl: cfg.apiBaseUrl);
@@ -2435,7 +2825,7 @@ class _ActivityPageState extends State<ActivityPage> {
             onTimeout: () => throw TimeoutException('Request timed out'),
           );
           activities = List<Map<String, dynamic>>.from(
-            list.map((e) => Map<String, dynamic>.from(e as Map))
+            list.map((e) => Map<String, dynamic>.from(e as Map)),
           );
         }
       } else {
@@ -2446,19 +2836,20 @@ class _ActivityPageState extends State<ActivityPage> {
           onTimeout: () => throw TimeoutException('Request timed out'),
         );
         activities = List<Map<String, dynamic>>.from(
-          list.map((e) => Map<String, dynamic>.from(e as Map))
+          list.map((e) => Map<String, dynamic>.from(e as Map)),
         );
       }
-      
+
       _activities = activities;
-      
+
       // Set initial selected time slot to current time slot if not already set
       if (_selectedTimeSlot == null && activities.isNotEmpty) {
         final currentSlot = WellnessActivityService.getCurrentTimeSlot();
         // Find the first activity's time slot that matches current time
         for (final activity in activities) {
           final timeSlot = activity['timeSlot'] as String?;
-          if (timeSlot != null && timeSlot.toLowerCase().contains(currentSlot.toLowerCase())) {
+          if (timeSlot != null &&
+              timeSlot.toLowerCase().contains(currentSlot.toLowerCase())) {
             _selectedTimeSlot = timeSlot;
             break;
           }
@@ -2468,23 +2859,26 @@ class _ActivityPageState extends State<ActivityPage> {
           _selectedTimeSlot = activities.first['timeSlot'] as String?;
         }
       }
-      
+
       // Load completion status for each activity from Firestore (source of truth)
       // This ensures activities reset at midnight properly
-      final completedIds = await WellnessActivityService.getTodaysCompletedActivityIds();
-      
+      final completedIds =
+          await WellnessActivityService.getTodaysCompletedActivityIds();
+
       for (final a in _activities) {
-        final id = a['id'] ?? (a['title'] ?? '').toString().toLowerCase().replaceAll(' ', '_');
+        final id =
+            a['id'] ??
+            (a['title'] ?? '').toString().toLowerCase().replaceAll(' ', '_');
         // Check Firestore first, then fall back to local cache
         final isCompleted = completedIds.contains(id);
         _completedCache[id] = isCompleted;
-        
+
         // Sync local cache with Firestore
         if (isCompleted) {
           await CompletionStore.markCompleted(id);
         }
       }
-      
+
       if (!mounted) return;
       setState(() {
         _activitiesLoading = false;
@@ -2494,25 +2888,29 @@ class _ActivityPageState extends State<ActivityPage> {
       if (!mounted) return;
       setState(() {
         _activitiesLoading = false;
-        _activitiesError = 'Request timed out. Please check your internet connection and try again.';
+        _activitiesError =
+            'Request timed out. Please check your internet connection and try again.';
       });
     } on SocketException {
       if (!mounted) return;
       setState(() {
         _activitiesLoading = false;
-        _activitiesError = 'No internet connection. Please connect to the internet and try again.';
+        _activitiesError =
+            'No internet connection. Please connect to the internet and try again.';
       });
     } on FormatException {
       if (!mounted) return;
       setState(() {
         _activitiesLoading = false;
-        _activitiesError = 'Server returned unexpected data. Please try again later.';
+        _activitiesError =
+            'Server returned unexpected data. Please try again later.';
       });
     } on HttpException catch (e) {
       if (!mounted) return;
       setState(() {
         _activitiesLoading = false;
-        _activitiesError = 'Server error: ${e.message}. Please try again later.';
+        _activitiesError =
+            'Server error: ${e.message}. Please try again later.';
       });
     } catch (e) {
       if (!mounted) return;

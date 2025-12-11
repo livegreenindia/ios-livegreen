@@ -45,7 +45,36 @@ class LocationTrackingService {
     if (_startTime == null) return Duration.zero;
     return DateTime.now().difference(_startTime!);
   }
-  
+
+  /// Initialize location permission at app startup (non-blocking, doesn't throw)
+  static Future<void> initializePermission() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        debugPrint('[Location] Location services are disabled');
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      
+      if (permission == LocationPermission.denied) {
+        debugPrint('[Location] Requesting location permission...');
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.whileInUse || 
+          permission == LocationPermission.always) {
+        debugPrint('[Location] User granted location permission');
+      } else if (permission == LocationPermission.denied) {
+        debugPrint('[Location] User denied location permission');
+      } else if (permission == LocationPermission.deniedForever) {
+        debugPrint('[Location] Location permission permanently denied');
+      }
+    } catch (e) {
+      debugPrint('[Location] Error requesting permission: $e');
+    }
+  }
+
   /// Check and request location permission
   Future<LocationPermission> checkAndRequestPermission() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();

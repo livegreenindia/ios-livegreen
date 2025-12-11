@@ -179,6 +179,45 @@ try {
   console.error('Failed to register onActivityCompletion:', e.message);
 }
 
+// Export club notification functions
+try {
+  const {
+    notifyAdminOnClubCreation,
+    notifyCreatorOnClubApproval,
+    notifyCreatorOnClubRejection,
+    updateClubActivityCount,
+    cleanupArchivedClubs,
+    getClubStatistics,
+  } = require('./clubNotifications');
+  
+  if (notifyAdminOnClubCreation) {
+    exports.notifyAdminOnClubCreation = notifyAdminOnClubCreation;
+    console.log('notifyAdminOnClubCreation registered successfully');
+  }
+  if (notifyCreatorOnClubApproval) {
+    exports.notifyCreatorOnClubApproval = notifyCreatorOnClubApproval;
+    console.log('notifyCreatorOnClubApproval registered successfully');
+  }
+  if (notifyCreatorOnClubRejection) {
+    exports.notifyCreatorOnClubRejection = notifyCreatorOnClubRejection;
+    console.log('notifyCreatorOnClubRejection registered successfully');
+  }
+  if (updateClubActivityCount) {
+    exports.updateClubActivityCount = updateClubActivityCount;
+    console.log('updateClubActivityCount registered successfully');
+  }
+  if (cleanupArchivedClubs) {
+    exports.cleanupArchivedClubs = cleanupArchivedClubs;
+    console.log('cleanupArchivedClubs registered successfully');
+  }
+  if (getClubStatistics) {
+    exports.getClubStatistics = getClubStatistics;
+    console.log('getClubStatistics registered successfully');
+  }
+} catch (e) {
+  console.error('Failed to register club functions:', e.message);
+}
+
 // Export the Express app for deploy_index.js to wrap
 module.exports = app;
 

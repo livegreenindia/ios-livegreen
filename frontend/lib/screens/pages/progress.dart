@@ -417,39 +417,29 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       
       if (socialMap != null && mounted) {
         if (socialMap['apps'] != null && socialMap['apps'] is List) {
-          final apps = List<Map<String, dynamic>>.from(socialMap['apps']);
+          // Properly convert the nested maps from Object? to String, dynamic
+          final rawApps = socialMap['apps'] as List;
+          final apps = rawApps.map((item) {
+            if (item is Map) {
+              return Map<String, dynamic>.from(item);
+            }
+            return <String, dynamic>{};
+          }).where((app) => app.isNotEmpty).toList();
           
           if (kDebugMode) {
-            debugPrint('[DigitalWellbeing] Total apps received: ${apps.length}');
+            debugPrint('[DigitalWellbeing] Social media apps received: ${apps.length}');
             for (var app in apps) {
               debugPrint('[DigitalWellbeing] App: ${app['appName']}, Minutes: ${app['minutes']}');
             }
           }
           
-          // Filter to only social media apps (expanded list)
-          const socialIds = [
-            'youtube','vanced','revanced','instagram','snapchat','pinterest','facebook','twitter','x','threads','tiktok','reels','shorts','whatsapp','telegram','discord','reddit','linkedin','tumblr','mastodon'
-          ];
-          final filtered = apps.where((a) {
-            final name = (a['appName'] ?? '').toString().toLowerCase();
-            final isMatch = socialIds.any((id) => name.contains(id));
-            if (kDebugMode && isMatch) {
-              debugPrint('[DigitalWellbeing] Matched social app: $name');
-            }
-            return isMatch;
-          }).toList();
-          
-          if (kDebugMode) {
-            debugPrint('[DigitalWellbeing] Filtered apps count: ${filtered.length}');
-          }
-          
           setState(() {
-            _socialMediaApps = filtered;
+            _socialMediaApps = apps;
           });
           
           // Save daily social media usage to Firestore for notification checking
-          if (_range == 'daily' && filtered.isNotEmpty) {
-            _saveSocialMediaMetrics(filtered);
+          if (_range == 'daily' && apps.isNotEmpty) {
+            _saveSocialMediaMetrics(apps);
           }
         } else {
           if (kDebugMode) {
@@ -896,9 +886,6 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                       getTooltipItem: (group, groupIndex, rod, rodIndex) {
                         final item = display[group.x.toInt()];
                         final pct = (item['completionPercent'] ?? 0).toStringAsFixed(0);
-                        final count = (item['count'] ?? 0).toString();
-                        final hap = (item['happiness'] ?? 0).toStringAsFixed(1);
-                        final co2 = (int.tryParse(count) ?? 0) * 0.5;
                         
                         // Eco-themed emoji based on completion
                         String emoji = '🌱';
@@ -910,7 +897,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                         else emoji = '🌍';
                         
                         return BarTooltipItem(
-                          '$emoji  Green Score: $pct%\n🍀 $count eco ${count == '1' ? 'action' : 'actions'}\n💚 Wellness: $hap/10\n☁️ ${co2.toStringAsFixed(1)} kg CO₂ saved',
+                          '$emoji  Green Score: $pct%',
                           GoogleFonts.manrope(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
@@ -1271,13 +1258,8 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       },
     );
     
-    // Return chart with smart insights
-    return Column(
-      children: [
-        chartWidget,
-        _buildSmartInsights(display),
-      ],
-    );
+    // Return chart only (removed smart insights)
+    return chartWidget;
   }
 
   void _showDetailModal(Map<String, dynamic> item, List<Map<String, dynamic>> display) {
@@ -1460,120 +1442,81 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     }
     
     return Container(
-      height: 280,
+      height: 240,
       padding: const EdgeInsets.all(20),
-      child: Row(
-        children: [
-          // Left: Circular progress for completion
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-                  height: 140,
-                  width: 140,
-                  child: Stack(
-                    alignment: Alignment.center,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              height: 140,
+              width: 140,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Background circle
+                  SizedBox(
+                    height: 140,
+                    width: 140,
+                    child: CircularProgressIndicator(
+                      value: 1,
+                      strokeWidth: 12,
+                      backgroundColor: Colors.transparent,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+                      ),
+                    ),
+                  ),
+                  // Progress circle
+                  SizedBox(
+                    height: 140,
+                    width: 140,
+                    child: CircularProgressIndicator(
+                      value: completion / 100,
+                      strokeWidth: 12,
+                      strokeCap: StrokeCap.round,
+                      backgroundColor: Colors.transparent,
+                      valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+                    ),
+                  ),
+                  // Center content
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Background circle
-                      SizedBox(
-                        height: 140,
-                        width: 140,
-                        child: CircularProgressIndicator(
-                          value: 1,
-                          strokeWidth: 12,
-                          backgroundColor: Colors.transparent,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            isDark ? Colors.grey.shade800 : Colors.grey.shade200,
-                          ),
+                      Text(ecoEmoji, style: const TextStyle(fontSize: 28)),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${completion.toStringAsFixed(0)}%',
+                        style: GoogleFonts.manrope(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: progressColor,
                         ),
-                      ),
-                      // Progress circle
-                      SizedBox(
-                        height: 140,
-                        width: 140,
-                        child: CircularProgressIndicator(
-                          value: completion / 100,
-                          strokeWidth: 12,
-                          strokeCap: StrokeCap.round,
-                          backgroundColor: Colors.transparent,
-                          valueColor: AlwaysStoppedAnimation<Color>(progressColor),
-                        ),
-                      ),
-                      // Center content
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(ecoEmoji, style: const TextStyle(fontSize: 28)),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${completion.toStringAsFixed(0)}%',
-                            style: GoogleFonts.manrope(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w800,
-                              color: progressColor,
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Green Score',
-                  style: GoogleFonts.manrope(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                Text(
-                  ecoMessage,
-                  style: GoogleFonts.manrope(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: progressColor,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          // Divider
-          Container(
-            width: 1,
-            height: 180,
-            color: isDark ? Colors.grey[700] : Colors.grey[300],
-          ),
-          // Right: Stats
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildDailyStat(
-                  icon: Icons.favorite,
-                  label: 'Wellness',
-                  value: '${happiness.toStringAsFixed(1)}/10',
-                  color: const Color(0xFFE91E63),
-                ),
-                const SizedBox(height: 20),
-                _buildDailyStat(
-                  icon: Icons.eco,
-                  label: 'Eco Actions',
-                  value: '$count done',
-                  color: primaryColor,
-                ),
-                const SizedBox(height: 20),
-                _buildDailyStat(
-                  icon: Icons.cloud_outlined,
-                  label: 'CO₂ Saved',
-                  value: '${(count * 0.5).toStringAsFixed(1)} kg',
-                  color: Colors.blue,
-                ),
-              ],
+            const SizedBox(height: 12),
+            Text(
+              'Green Score',
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[600],
+              ),
             ),
-          ),
-        ],
+            Text(
+              ecoMessage,
+              style: GoogleFonts.manrope(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: progressColor,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1868,7 +1811,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                       const SizedBox(height: 16),
                     ],
                     
-                    // Summary Cards Row
+                    // Summary Cards Row - Centered Green Score
                     Row(
                       children: [
                         Expanded(
@@ -1908,7 +1851,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                     // Main Chart Card
                       _buildChartCard(
                       context,
-                      title: "Eco Performance Trends",
+                      title: "Performance Trends",
                       subtitle: _range == 'daily'
                           ? "Today's Impact"
                           : _range == 'weekly'
@@ -1917,7 +1860,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                               ? "Monthly Impact"
                               : "Yearly Journey",
                       chartWidget: _buildCharts(),
-                      showLegend: true,
+                      showLegend: false,
                     ),
                       const SizedBox(height: 12),
                       // (Diagnostic Usage Access panel removed)
@@ -2023,11 +1966,6 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     final progressPercent = _todayExpectedCount > 0 
         ? _todayCompletedCount / _todayExpectedCount 
         : 0.0;
-    
-    // Calculate eco impact
-    final co2Saved = (_todayCompletedCount * 0.5); // kg CO2 per activity
-    final treesEquivalent = (_todayCompletedCount * 0.02); // tree absorption
-    final waterSaved = (_todayCompletedCount * 2); // liters
     
     // Get emoji and color based on progress - eco-themed
     String progressEmoji;
@@ -2210,30 +2148,6 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                   child: Icon(Icons.eco, size: 16, color: Colors.white.withAlpha(220)),
                 ),
             ],
-          ),
-          const SizedBox(height: 18),
-          
-          // Eco Impact Stats
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-            decoration: BoxDecoration(
-              color: isDark ? Colors.grey.shade800.withAlpha(120) : Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: progressColor.withAlpha(30),
-                width: 1,
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildEcoImpactStat(Icons.cloud_outlined, '${co2Saved.toStringAsFixed(1)} kg', 'CO₂ Saved', progressColor),
-                Container(width: 1, height: 36, color: Colors.grey.shade300),
-                _buildEcoImpactStat(Icons.park_outlined, treesEquivalent.toStringAsFixed(2), 'Trees Equiv.', progressColor),
-                Container(width: 1, height: 36, color: Colors.grey.shade300),
-                _buildEcoImpactStat(Icons.water_drop_outlined, '${waterSaved}L', 'Water Saved', progressColor),
-              ],
-            ),
           ),
           const SizedBox(height: 14),
           

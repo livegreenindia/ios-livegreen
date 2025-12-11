@@ -145,22 +145,47 @@ class MainActivity : FlutterActivity() {
 						}
 
 						val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-
-						// Prefer aggregated stats API for reliability across Android versions
-						val aggregate = usageStatsManager.queryAndAggregateUsageStats(start, end)
-
-						val appsList = mutableListOf<Map<String, Any>>()
 						val pm = packageManager
 
 						// identifiers to classify social media
 						val identifiers = listOf(
-							"youtube", "revanced", "instagram", "snapchat", "pinterest",
-							"facebook", "twitter", "x", "threads", "tiktok", "reels", "shorts",
-							"whatsapp", "telegram", "discord", "reddit", "linkedin", "tumblr", "mastodon"
+							"youtube", "revanced", "vanced", "instagram", "snapchat", "pinterest",
+							"facebook", "meta", "twitter", "x", "threads", "tiktok", "reels", "shorts",
+							"whatsapp", "telegram", "discord", "reddit", "linkedin", "tumblr", "mastodon",
+							"messenger", "signal", "viber", "wechat", "line", "kik", "skype"
 						)
 
-						for ((pkg, stat) in aggregate) {
-							val timeMillis = try { stat.totalTimeInForeground } catch (_: Exception) { 0L }
+						// Use a map to aggregate usage by package
+						val usageMap = mutableMapOf<String, Long>()
+						
+						// Try queryAndAggregateUsageStats first (more accurate)
+						val aggregate = usageStatsManager.queryAndAggregateUsageStats(start, end)
+						if (aggregate != null && aggregate.isNotEmpty()) {
+							for ((pkg, stat) in aggregate) {
+								val timeMillis = try { stat.totalTimeInForeground } catch (_: Exception) { 0L }
+								if (timeMillis > 0) {
+									usageMap[pkg] = (usageMap[pkg] ?: 0L) + timeMillis
+								}
+							}
+						}
+						
+						// If aggregate is empty, fallback to queryUsageStats
+						if (usageMap.isEmpty()) {
+							val statsList = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, start, end)
+							if (statsList != null) {
+								for (stat in statsList) {
+									val pkg = stat.packageName
+									val timeMillis = try { stat.totalTimeInForeground } catch (_: Exception) { 0L }
+									if (timeMillis > 0) {
+										usageMap[pkg] = (usageMap[pkg] ?: 0L) + timeMillis
+									}
+								}
+							}
+						}
+
+						val appsList = mutableListOf<Map<String, Any>>()
+						
+						for ((pkg, timeMillis) in usageMap) {
 							if (timeMillis <= 0) continue
 
 							val pkgLower = pkg.lowercase()
