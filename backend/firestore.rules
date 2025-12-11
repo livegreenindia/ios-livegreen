@@ -28,7 +28,7 @@ service cloud.firestore {
     // Users top-level document - user can read/write their own data
     match /users/{userId} {
       allow read, write: if isOwner(userId);
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isAdminByRole();
       
       // User's recorded tracks subcollection
       match /tracks/{trackId} {
@@ -50,7 +50,7 @@ service cloud.firestore {
       // User's other subcollections (catch-all for existing)
       match /{sub=**} {
         allow read, write: if isOwner(userId);
-        allow read: if isAdmin();
+        allow read: if isAdmin() || isAdminByRole();
       }
     }
 
@@ -83,6 +83,18 @@ service cloud.firestore {
     match /daily_metrics/{docId} {
       allow read: if isAuthenticated() && resource.data.uid == request.auth.uid;
       allow write: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+    }
+
+    // Pending Places: user-submitted places awaiting admin approval
+    match /pendingPlaces/{placeId} {
+      // Admins can read all, users can read their own submissions
+      allow read: if isAdmin() || isAdminByRole() ||
+                    (isAuthenticated() && resource.data.submittedBy == request.auth.uid);
+      // Authenticated users can submit places
+      allow create: if isAuthenticated() && 
+                      request.resource.data.submittedBy == request.auth.uid;
+      // Only admins can approve/reject (update or delete)
+      allow update, delete: if isAdmin() || isAdminByRole();
     }
 
     // Trek Explorer: Treks collection
@@ -131,7 +143,7 @@ service cloud.firestore {
     match /clubs/{clubId} {
       // Read: approved clubs are public, pending/rejected only by admin/creator
       allow read: if resource.data.status == 'approved' ||
-                     isAdmin() ||
+                     isAdmin() || isAdminByRole() ||
                      (isAuthenticated() && resource.data.creatorId == request.auth.uid);
       
       // Create: authenticated users can create pending clubs
@@ -144,12 +156,12 @@ service cloud.firestore {
       // Update: creator can update pending clubs, admin can approve/reject, leaders can edit approved clubs
       allow update: if isAuthenticated() && 
                       ((resource.data.status == 'pending' && resource.data.creatorId == request.auth.uid) ||
-                       (isAdmin() && (request.resource.data.status == 'approved' || 
+                       ((isAdmin() || isAdminByRole()) && (request.resource.data.status == 'approved' || 
                                       request.resource.data.status == 'rejected')) ||
                        (resource.data.status == 'approved' && resource.data.leaderIds.hasAny([request.auth.uid])));
       
       // Delete: only admin can delete
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isAdminByRole();
       
       // Activities subcollection
       match /activities/{activityId} {
@@ -177,7 +189,7 @@ service cloud.firestore {
         // Create/Update/Delete: handled by club service
         allow write: if isAuthenticated() && 
                       (get(/databases/$(database)/documents/clubs/$(clubId)).data.leaderIds.hasAny([request.auth.uid]) ||
-                       isAdmin());
+                       isAdmin() || isAdminByRole());
       }
     }
 

@@ -1,14 +1,7 @@
 import { useEffect, useState } from 'react';
-import { collection, query, getDocs, orderBy, limit, where } from 'firebase/firestore';
+import { collection, query, getDocs, limit, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { TrendingUp, Users, Activity, Heart } from 'lucide-react';
-
-interface DailyStats {
-  date: string;
-  users: number;
-  completions: number;
-  happiness: number;
-}
 
 export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);

@@ -9,7 +9,6 @@ import {
   BarChart3,
   LogOut,
   Menu,
-  X,
   Leaf,
 } from 'lucide-react';
 

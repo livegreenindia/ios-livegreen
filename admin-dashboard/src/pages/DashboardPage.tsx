@@ -52,12 +52,8 @@ export default function DashboardPage() {
       const pendingPlacesSnap = await getDocs(pendingPlacesQuery);
       const pendingPlaces = pendingPlacesSnap.size;
 
-      // Get today's completions (approximate - just count recent ones)
-      const today = new Date();
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      
-      let todayCompletions = 0;
-      // This would need to iterate users - simplified for now
+      // Get today's completions - simplified for now
+      const todayCompletions = 0;
       
       setStats({
         totalUsers,

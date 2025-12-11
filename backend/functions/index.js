@@ -218,6 +218,41 @@ try {
   console.error('Failed to register club functions:', e.message);
 }
 
+// Admin setup endpoint (one-time use, should be removed after setup)
+app.post('/setup-admin', async (req, res) => {
+  const { email, secretKey } = req.body;
+  
+  // Simple secret key protection - change this!
+  if (secretKey !== 'livegreen-setup-2025') {
+    return res.status(403).json({ error: 'Invalid secret key' });
+  }
+  
+  try {
+    // Get user by email from Firebase Auth
+    const userRecord = await admin.auth().getUserByEmail(email);
+    const uid = userRecord.uid;
+    
+    // Create or update user document with admin role
+    await db.collection('users').doc(uid).set({
+      email: email,
+      role: 'admin',
+      isAdmin: true,
+      displayName: userRecord.displayName || email.split('@')[0],
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    
+    res.json({ 
+      success: true, 
+      message: `Admin role set for ${email}`,
+      uid: uid 
+    });
+  } catch (error) {
+    console.error('Setup admin error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Export the Express app for deploy_index.js to wrap
 module.exports = app;
 

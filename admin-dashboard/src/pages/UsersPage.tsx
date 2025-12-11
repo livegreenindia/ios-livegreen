@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { collection, query, getDocs, doc, updateDoc, orderBy, limit, startAfter, DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Search, Shield, ShieldOff, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { Search, Shield, ShieldOff, Loader2 } from 'lucide-react';
 
 interface User {
   id: string;

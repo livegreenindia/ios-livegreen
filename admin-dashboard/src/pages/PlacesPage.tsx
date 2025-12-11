@@ -79,7 +79,8 @@ export default function PlacesPage() {
   };
 
   const rejectPlace = async (placeId: string) => {
-    const reason = prompt('Reason for rejection (optional):');
+    // Reason for rejection (optional) - could be used for notification
+    // const reason = prompt('Reason for rejection (optional):');
     try {
       setUpdating(placeId);
       await deleteDoc(doc(db, 'pendingPlaces', placeId));
