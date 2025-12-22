@@ -182,9 +182,50 @@ class ErrorHandler {
       return 'Email is required';
     }
     
-    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
-    if (!emailRegex.hasMatch(email.trim())) {
+    final trimmed = email.trim();
+    
+    // Enhanced email regex that follows RFC 5322 more closely
+    final emailRegex = RegExp(
+      r'^[a-zA-Z0-9.!#$%&’*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$'
+    );
+    
+    if (!emailRegex.hasMatch(trimmed)) {
       return 'Please enter a valid email address';
+    }
+    
+    // Additional validation checks
+    if (trimmed.contains('..')) {
+      return 'Email address cannot contain consecutive dots';
+    }
+    
+    if (trimmed.startsWith('.') || trimmed.endsWith('.')) {
+      return 'Email address cannot start or end with a dot';
+    }
+    
+    final parts = trimmed.split('@');
+    if (parts.length != 2) {
+      return 'Email address must contain exactly one @ symbol';
+    }
+    
+    final localPart = parts[0];
+    final domainPart = parts[1];
+    
+    if (localPart.isEmpty || domainPart.isEmpty) {
+      return 'Email address is incomplete';
+    }
+    
+    if (domainPart.startsWith('.') || domainPart.endsWith('.')) {
+      return 'Invalid domain format';
+    }
+    
+    // Check for common disposable email domains (optional but recommended)
+    final disposableDomains = [
+      '10minutemail.com', 'temp-mail.org', 'guerrillamail.com', 
+      'mailinator.com', 'throwaway.email', 'yopmail.com'
+    ];
+    
+    if (disposableDomains.contains(domainPart.toLowerCase())) {
+      return 'Please use a permanent email address';
     }
     
     return null;

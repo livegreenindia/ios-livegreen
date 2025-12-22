@@ -153,32 +153,7 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage>
           'email': prefillEmail,
           'contact': prefillContact,
         },
-        // Configure payment methods
-        'method': {
-          'upi': true,
-          'card': true,
-          'wallet': true,
-          'netbanking': true,
-        },
-        // Callback URL for handling external wallet redirects
-        'callback_url': '',
-        'redirect': true,
-        // Modal settings
-        'modal': {
-          'ondismiss': () {
-            if (mounted) {
-              setState(() => _loading = false);
-            }
-          },
-          'escape': true,
-          'animation': true,
-        },
         'theme': {'color': '#38e07b'},
-        // Add retry configuration
-        'retry': {
-          'enabled': true,
-          'max_count': 3,
-        },
         // Timeout for payment completion (in seconds)
         'timeout': 600, // 10 minutes
       };

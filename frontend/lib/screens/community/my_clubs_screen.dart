@@ -5,7 +5,7 @@ import 'club_details_screen.dart';
 import 'create_club_screen.dart';
 
 class MyClubsScreen extends StatefulWidget {
-  const MyClubsScreen({Key? key}) : super(key: key);
+  const MyClubsScreen({super.key});
 
   @override
   State<MyClubsScreen> createState() => _MyClubsScreenState();

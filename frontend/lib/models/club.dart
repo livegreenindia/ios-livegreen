@@ -252,6 +252,8 @@ class ClubActivity {
   final String type; // 'post', 'event', 'announcement'
   final DateTime? eventDate;
   final String? location;
+  final double? eventLatitude;
+  final double? eventLongitude;
 
   ClubActivity({
     required this.id,
@@ -269,6 +271,8 @@ class ClubActivity {
     required this.type,
     this.eventDate,
     this.location,
+    this.eventLatitude,
+    this.eventLongitude,
   });
 
   factory ClubActivity.fromFirestore(DocumentSnapshot doc) {
@@ -289,6 +293,8 @@ class ClubActivity {
       type: data['type'] ?? 'post',
       eventDate: (data['eventDate'] as Timestamp?)?.toDate(),
       location: data['location'],
+      eventLatitude: data['eventLatitude'],
+      eventLongitude: data['eventLongitude'],
     );
   }
 
@@ -308,6 +314,8 @@ class ClubActivity {
       'type': type,
       'eventDate': eventDate != null ? Timestamp.fromDate(eventDate!) : null,
       'location': location,
+      'eventLatitude': eventLatitude,
+      'eventLongitude': eventLongitude,
     };
   }
 }
@@ -352,6 +360,50 @@ class ClubMember {
       'role': role,
       'joinedAt': Timestamp.fromDate(joinedAt),
       'isActive': isActive,
+    };
+  }
+}
+/// Club message model for chat functionality
+class ClubMessage {
+  final String id;
+  final String clubId;
+  final String userId;
+  final String userName;
+  final String? userImage;
+  final String content;
+  final DateTime timestamp;
+
+  ClubMessage({
+    required this.id,
+    required this.clubId,
+    required this.userId,
+    required this.userName,
+    this.userImage,
+    required this.content,
+    required this.timestamp,
+  });
+
+  factory ClubMessage.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return ClubMessage(
+      id: doc.id,
+      clubId: data['clubId'] ?? '',
+      userId: data['userId'] ?? '',
+      userName: data['userName'] ?? 'Anonymous',
+      userImage: data['userImage'],
+      content: data['content'] ?? '',
+      timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'clubId': clubId,
+      'userId': userId,
+      'userName': userName,
+      'userImage': userImage,
+      'content': content,
+      'timestamp': Timestamp.fromDate(timestamp),
     };
   }
 }

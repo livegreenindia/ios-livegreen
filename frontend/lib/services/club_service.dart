@@ -288,6 +288,63 @@ class ClubService {
     }
   }
 
+  // Create event activity with full location support
+  Future<String> createActivity({
+    required String clubId,
+    required String content,
+    required String authorName,
+    required String type,
+    String? eventTitle,
+    DateTime? eventDate,
+    String? eventLocation,
+    double? eventLatitude,
+    double? eventLongitude,
+    String? imageUrl,
+  }) async {
+    try {
+      final userId = _auth.currentUser?.uid;
+      final userName = _auth.currentUser?.displayName ?? authorName;
+      final userImage = _auth.currentUser?.photoURL;
+
+      if (userId == null) throw Exception('User not authenticated');
+
+      final activity = ClubActivity(
+        id: '',
+        clubId: clubId,
+        authorId: userId,
+        authorName: userName,
+        authorImageUrl: userImage,
+        title: eventTitle ?? '',
+        content: content,
+        imageUrl: imageUrl,
+        createdAt: DateTime.now(),
+        likeCount: 0,
+        likedByUserIds: [],
+        commentCount: 0,
+        type: type,
+        eventDate: eventDate,
+        location: eventLocation,
+        eventLatitude: eventLatitude,
+        eventLongitude: eventLongitude,
+      );
+
+      final docRef = await _firestore
+          .collection('clubs')
+          .doc(clubId)
+          .collection('activities')
+          .add(activity.toFirestore());
+
+      // Increment activity count
+      await _firestore.collection('clubs').doc(clubId).update({
+        'activityCount': FieldValue.increment(1),
+      });
+
+      return docRef.id;
+    } catch (e) {
+      throw Exception('Failed to create activity: $e');
+    }
+  }
+
   // Get club activities
   Future<List<ClubActivity>> getClubActivities(String clubId, {int limit = 20}) async {
     try {
@@ -429,5 +486,51 @@ class ClubService {
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) => snapshot.docs.map((doc) => ClubActivity.fromFirestore(doc)).toList());
+  }
+
+  // Add message to club chat
+  Future<String> addMessage(String clubId, ClubMessage message) async {
+    try {
+      final userId = _auth.currentUser?.uid;
+      if (userId == null) throw Exception('User not authenticated');
+
+      final docRef = await _firestore
+          .collection('clubs')
+          .doc(clubId)
+          .collection('messages')
+          .add(message.toFirestore());
+
+      return docRef.id;
+    } catch (e) {
+      throw Exception('Failed to send message: $e');
+    }
+  }
+
+  // Get messages for a club
+  Future<List<ClubMessage>> getMessages(String clubId, {int limit = 100}) async {
+    try {
+      final snapshot = await _firestore
+          .collection('clubs')
+          .doc(clubId)
+          .collection('messages')
+          .orderBy('timestamp', descending: false)
+          .limit(limit)
+          .get();
+      
+      return snapshot.docs.map((doc) => ClubMessage.fromFirestore(doc)).toList();
+    } catch (e) {
+      throw Exception('Failed to fetch messages: $e');
+    }
+  }
+
+  // Stream messages for real-time updates
+  Stream<List<ClubMessage>> streamMessages(String clubId) {
+    return _firestore
+        .collection('clubs')
+        .doc(clubId)
+        .collection('messages')
+        .orderBy('timestamp', descending: false)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) => ClubMessage.fromFirestore(doc)).toList());
   }
 }

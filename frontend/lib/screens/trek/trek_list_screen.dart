@@ -11,6 +11,7 @@ import '../../services/trek_service.dart';
 import '../../services/osm_trek_service.dart';
 import '../../services/location_tracking_service.dart';
 import '../../services/place_submission_service.dart';
+import '../../services/google_places_service.dart';
 import '../../utils/gpx_parser.dart';
 import '../../utils/geo_utils.dart';
 import '../../widgets/trek/trek_components.dart';
@@ -34,6 +35,7 @@ class _TrekListScreenState extends State<TrekListScreen>
   late TabController _tabController;
   final TrekService _trekService = TrekService();
   final OSMTrekService _osmTrekService = OSMTrekService();
+  final GooglePlacesService _googlePlacesService = GooglePlacesService();
   final LocationTrackingService _locationService = LocationTrackingService();
   final PlaceSubmissionService _placeSubmissionService = PlaceSubmissionService();
   final ScrollController _scrollController = ScrollController();
@@ -51,12 +53,30 @@ class _TrekListScreenState extends State<TrekListScreen>
   TrekCategory? _selectedCategory;
   String _searchQuery = '';
   bool _isAdmin = false;
+  bool _isInitialized = false; // Flag to prevent double initialization
   
   // Location state
   Position? _currentPosition;
   bool _isLocationLoading = false;
   String? _locationError;
-  final double _searchRadiusKm = 100.0; // Default 100km radius for better coverage
+  // Radius settings per tab (in kilometers)
+  static const double _pathsRadiusKm = 50.0; // 50km radius for trekking paths
+  static const double _fitnessRadiusKm = 25.0; // 25km for fitness locations
+  static const double _poiRadiusKm = 25.0; // 25km for POI
+  
+  /// Get the search radius based on current tab
+  double get _searchRadiusKm {
+    switch (_tabController.index) {
+      case _tabPaths:
+        return _pathsRadiusKm;
+      case _tabFitness:
+        return _fitnessRadiusKm;
+      case _tabPOI:
+        return _poiRadiusKm;
+      default:
+        return _pathsRadiusKm;
+    }
+  }
   
   // Map view state
   bool _showMapView = false;
@@ -102,49 +122,51 @@ class _TrekListScreenState extends State<TrekListScreen>
 
   Future<void> _initializeLocation() async {
     setState(() => _isLocationLoading = true);
-    
+
     try {
+      // Request location permission when actually needed
       await _locationService.checkAndRequestPermission();
       _currentPosition = await _locationService.getCurrentLocation();
       _locationError = null;
-      
+
       debugPrint('TrekListScreen: Got location: ${_currentPosition?.latitude}, ${_currentPosition?.longitude}');
-      
+
       // Set up streaming subscription for nearby treks
       _setupNearbyTreksStream();
-      
+
       // Automatically fetch treks from OpenStreetMap based on location (force refresh on init)
-      _fetchOSMTreks(forceRefresh: true);
+      try {
+        await _fetchOSMTreks(forceRefresh: true);
+      } catch (e) {
+        debugPrint('OSM fetch failed: $e');
+      }
     } catch (e) {
       debugPrint('TrekListScreen: Location error: $e');
       _locationError = e.toString();
       _currentPosition = null;
     } finally {
       setState(() => _isLocationLoading = false);
+      _isInitialized = true;
       _loadTreks();
     }
   }
 
-  /// Fetch treks from OpenStreetMap based on user location and current tab
+  /// Fetch treks from OpenStreetMap and Google Places for Trekking Paths tab
   Future<void> _fetchOSMTreks({bool forceRefresh = false}) async {
     if (_currentPosition == null) return;
-    
     setState(() => _isLoadingOSM = true);
-    
     try {
-      debugPrint('TrekListScreen: Fetching OSM data for tab ${_tabController.index}');
-      
+      debugPrint('TrekListScreen: Fetching OSM data for tab  ${_tabController.index}');
       List<Trek> osmTreks = [];
+      List<Trek> googleTreks = [];
       final lat = _currentPosition!.latitude;
       final lng = _currentPosition!.longitude;
-      
-      // Fetch only what's needed for the current tab
       switch (_tabController.index) {
         case _tabFitness:
           osmTreks = await _osmTrekService.fetchFitnessLocations(
             latitude: lat,
             longitude: lng,
-            radiusKm: 15, // Smaller radius for fitness
+            radiusKm: 15,
             specificCategory: _selectedCategory,
             forceRefresh: forceRefresh,
           );
@@ -154,7 +176,7 @@ class _TrekListScreenState extends State<TrekListScreen>
           osmTreks = await _osmTrekService.fetchPOILocations(
             latitude: lat,
             longitude: lng,
-            radiusKm: 15, // Smaller radius for POI
+            radiusKm: 25,
             forceRefresh: forceRefresh,
           );
           debugPrint('TrekListScreen: Fetched ${osmTreks.length} POI locations');
@@ -164,14 +186,29 @@ class _TrekListScreenState extends State<TrekListScreen>
           osmTreks = await _osmTrekService.fetchPathLocations(
             latitude: lat,
             longitude: lng,
-            radiusKm: 10, // Smaller radius for paths
+            radiusKm: 50,
             specificCategory: _selectedCategory,
             forceRefresh: forceRefresh,
           );
-          debugPrint('TrekListScreen: Fetched ${osmTreks.length} path locations');
+          debugPrint('TrekListScreen: Fetched ${osmTreks.length} OSM path locations');
+          // Always fetch Google Places for trekking points
+          googleTreks = await _googlePlacesService.fetchTrekkingPlaces(
+            latitude: lat,
+            longitude: lng,
+            radiusKm: 50,
+          );
+          debugPrint('TrekListScreen: Fetched ${googleTreks.length} Google Places trekking points');
+          // Merge and deduplicate by id
+          final allTreks = <String, Trek>{};
+          for (final t in osmTreks) {
+            allTreks[t.id] = t;
+          }
+          for (final t in googleTreks) {
+            allTreks[t.id] = t;
+          }
+          osmTreks = allTreks.values.toList();
           break;
       }
-      
       if (mounted) {
         setState(() {
           _osmTreks = osmTreks;
@@ -180,7 +217,7 @@ class _TrekListScreenState extends State<TrekListScreen>
         _updateMapMarkers();
       }
     } catch (e) {
-      debugPrint('Failed to fetch OSM treks: $e');
+      debugPrint('Failed to fetch OSM/Google treks: $e');
       if (mounted) {
         setState(() => _isLoadingOSM = false);
       }
@@ -302,7 +339,7 @@ class _TrekListScreenState extends State<TrekListScreen>
   }
 
   void _onTabChanged() {
-    if (_tabController.indexIsChanging) return;
+    if (_tabController.indexIsChanging || !_isInitialized) return;
     setState(() {
       _selectedCategory = null;
       _searchQuery = '';

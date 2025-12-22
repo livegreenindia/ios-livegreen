@@ -102,7 +102,7 @@ class _CommunityPageState extends State<CommunityPage> {
     return Scaffold(
       backgroundColor: isDark ? backgroundDark : backgroundLight,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: isDark ? backgroundDark : Colors.white,
         elevation: 0,
         centerTitle: true,
         title: Row(
@@ -111,11 +111,11 @@ class _CommunityPageState extends State<CommunityPage> {
             Icon(Icons.people, color: primaryColor, size: 24),
             const SizedBox(width: 8),
             Text(
-              "Community",
+              "Clubs",
               style: GoogleFonts.manrope(
                 fontWeight: FontWeight.w800,
                 fontSize: 18,
-                color: primaryColor,
+                color: isDark ? Colors.white : primaryColor,
                 letterSpacing: -0.5,
               ),
             ),
@@ -123,7 +123,11 @@ class _CommunityPageState extends State<CommunityPage> {
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.refresh, color: _loading ? Colors.grey : Colors.black87, size: 22),
+            icon: Icon(
+              Icons.refresh, 
+              color: _loading ? Colors.grey : (isDark ? Colors.white70 : Colors.black87), 
+              size: 22,
+            ),
             tooltip: 'Refresh Posts',
             onPressed: _loading ? null : _loadPosts,
           ),
@@ -139,7 +143,7 @@ class _CommunityPageState extends State<CommunityPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
 
-              // Section: Post box - Only for admins
+              // Section: Post box - Available for all users
               if (_checkingRole)
                 Container(
                   padding: const EdgeInsets.all(14),
@@ -164,55 +168,8 @@ class _CommunityPageState extends State<CommunityPage> {
                     ),
                   ),
                 )
-              else if (_isAdmin)
-                _postBox(context)
               else
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.blue.withOpacity(0.08),
-                        Colors.blue.withOpacity(0.04),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: Colors.blue.withOpacity(0.2),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.15),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.info_outline,
-                          color: Colors.blue[700],
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Only admins can create posts. Like and comment on discussions!',
-                          style: GoogleFonts.manrope(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w500,
-                            color: isDark ? Colors.white : Colors.black87,
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                _postBox(context),
 
               const SizedBox(height: 18),
 
@@ -310,12 +267,17 @@ class _CommunityPageState extends State<CommunityPage> {
                 )
               else if (_posts.isEmpty)
                 Container(
+                  width: double.infinity,
                   padding: const EdgeInsets.all(40),
                   decoration: BoxDecoration(
                     color: isDark ? backgroundDark.withAlpha((0.6 * 255).round()) : Colors.white,
                     borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.withOpacity(0.1),
+                    ),
                   ),
                   child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.forum_outlined, size: 60, color: Colors.grey[400]),
                       const SizedBox(height: 16),

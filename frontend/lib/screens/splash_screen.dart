@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../theme/app_theme.dart';
 
 /// Animated splash screen with logo, app name, and loading animation.
@@ -18,6 +19,7 @@ class _SplashScreenState extends State<SplashScreen>
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
   late Animation<Offset> _slideAnimation;
+  String _appVersion = '1.0.2';
 
   @override
   void initState() {
@@ -53,6 +55,9 @@ class _SplashScreenState extends State<SplashScreen>
 
     _controller.forward();
     
+    // Load app version
+    _loadAppVersion();
+    
     // Navigate after animation completes
     Future.delayed(const Duration(milliseconds: 2000), () {
       if (mounted) {
@@ -65,6 +70,19 @@ class _SplashScreenState extends State<SplashScreen>
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() {
+          _appVersion = packageInfo.version;
+        });
+      }
+    } catch (e) {
+      // Keep default version if loading fails
+    }
   }
 
   @override
@@ -215,7 +233,7 @@ class _SplashScreenState extends State<SplashScreen>
                 FadeTransition(
                   opacity: _fadeAnimation,
                   child: Text(
-                    'Version 1.0.0',
+                    'Version $_appVersion',
                     style: TextStyle(
                       fontSize: 12,
                       color: isDark ? Colors.white38 : Colors.grey[400],

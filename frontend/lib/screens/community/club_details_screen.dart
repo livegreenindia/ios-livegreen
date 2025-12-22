@@ -1,19 +1,62 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../models/club.dart';
 import '../../services/club_service.dart';
+import 'create_event_screen.dart';
 
 class ClubDetailsScreen extends StatefulWidget {
   final String clubId;
 
-  const ClubDetailsScreen({Key? key, required this.clubId}) : super(key: key);
+  const ClubDetailsScreen({super.key, required this.clubId});
 
   @override
   State<ClubDetailsScreen> createState() => _ClubDetailsScreenState();
 }
 
 class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTickerProviderStateMixin {
+    // Share club with deep link
+  void _shareClub() {
+    if (_club == null) return;
+    
+    final clubLink = 'https://livegreen.app/clubs/${_club!.id}';
+    final shareText = '''
+🌱 Join ${_club!.name}!
+
+${_club!.description}
+
+📍 ${_club!.location}
+👥 ${_club!.memberCount} members
+
+Join us on LiveGreen:
+$clubLink
+''';
+    
+    Share.share(shareText);
+  }
+
+  // Helper to add event to Google Calendar
+    Future<void> _addEventToGoogleCalendar(ClubActivity event) async {
+      final title = Uri.encodeComponent(event.title);
+      final details = Uri.encodeComponent(event.content ?? '');
+      final location = Uri.encodeComponent(_club?.location ?? '');
+      final start = event.eventDate?.toUtc().toIso8601String().replaceAll('-', '').replaceAll(':', '').split('.').first ?? '';
+      final end = event.eventDate != null ?
+        DateTime.fromMillisecondsSinceEpoch(event.eventDate!.millisecondsSinceEpoch + 3600000).toUtc().toIso8601String().replaceAll('-', '').replaceAll(':', '').split('.').first : '';
+      final url = 'https://www.google.com/calendar/render?action=TEMPLATE&text=$title&details=$details&location=$location&dates=$start/$end';
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not open Google Calendar')),
+          );
+        }
+      }
+    }
   final _clubService = ClubService();
   final _auth = FirebaseAuth.instance;
 
@@ -23,17 +66,23 @@ class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTicker
   bool _isLoading = true;
   bool _isJoinLoading = false;
   bool _isMember = false;
+  List<ClubMessage> _messages = [];
+  final TextEditingController _messageController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
+    _tabController.addListener(() {
+      setState(() {}); // Rebuild to show/hide FAB
+    });
     _loadClubDetails();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _messageController.dispose();
     super.dispose();
   }
 
@@ -41,11 +90,13 @@ class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTicker
     try {
       final club = await _clubService.getClubById(widget.clubId);
       final activities = await _clubService.getClubActivities(widget.clubId);
+      final messages = await _clubService.getMessages(widget.clubId);
       final currentUserId = _auth.currentUser?.uid;
 
       setState(() {
         _club = club;
         _activities = activities;
+        _messages = messages;
         _isMember = club?.memberIds.contains(currentUserId) ?? false;
         _isLoading = false;
       });
@@ -157,6 +208,13 @@ class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTicker
       appBar: AppBar(
         title: Text(_club!.name),
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: () => _shareClub(),
+            tooltip: 'Share Club',
+          ),
+        ],
       ),
       body: NestedScrollView(
         headerSliverBuilder: (context, innerBoxIsScrolled) {
@@ -304,7 +362,8 @@ class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTicker
               controller: _tabController,
               tabs: const [
                 Tab(text: 'About'),
-                Tab(text: 'Activities'),
+                Tab(text: 'Events'),
+                Tab(text: 'Messages'),
                 Tab(text: 'Members'),
               ],
             ),
@@ -315,7 +374,8 @@ class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTicker
                 controller: _tabController,
                 children: [
                   _buildAboutTab(),
-                  _buildActivitiesTab(),
+                  _buildEventsTab(),
+                  _buildMessagesTab(),
                   _buildMembersTab(),
                 ],
               ),
@@ -323,6 +383,24 @@ class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTicker
           ],
         ),
       ),
+      floatingActionButton: _isMember && _tabController.index == 1
+          ? FloatingActionButton.extended(
+              onPressed: () async {
+                if (_club == null) return;
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => CreateEventScreen(club: _club!),
+                  ),
+                );
+                if (result == true) {
+                  _loadClubDetails();
+                }
+              },
+              icon: const Icon(Icons.add),
+              label: const Text('Create Event'),
+            )
+          : null,
     );
   }
 
@@ -534,22 +612,45 @@ class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTicker
     );
   }
 
-  Widget _buildActivitiesTab() {
-    if (_activities.isEmpty) {
+  Widget _buildEventsTab() {
+    // Filter only events (type == 'event')
+    final events = _activities.where((a) => a.type.toLowerCase() == 'event').toList();
+    
+    if (events.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.article_outlined,
+              Icons.calendar_today,
               size: 64,
               color: Theme.of(context).colorScheme.outline,
             ),
             const SizedBox(height: 16),
             Text(
-              'No activities yet',
+              'No events yet',
               style: Theme.of(context).textTheme.titleMedium,
             ),
+            const SizedBox(height: 8),
+            if (_isMember)
+              ElevatedButton.icon(
+                onPressed: () async {
+                  if (_club == null) return;
+                  // Navigate to create event screen
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => CreateEventScreen(club: _club!),
+                    ),
+                  );
+                  // Refresh events if event was created
+                  if (result == true) {
+                    _loadClubDetails();
+                  }
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('Create Event'),
+              ),
           ],
         ),
       );
@@ -557,11 +658,320 @@ class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTicker
 
     return ListView.builder(
       padding: const EdgeInsets.all(16.0),
-      itemCount: _activities.length,
+      itemCount: events.length,
       itemBuilder: (context, index) {
-        final activity = _activities[index];
-        return _buildActivityCard(activity);
+        final event = events[index];
+        return _buildEventCard(event);
       },
+    );
+  }
+
+  Widget _buildMessagesTab() {
+    if (!_isMember) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.lock,
+              size: 64,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Join the club to chat',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        // Messages list
+        Expanded(
+          child: _messages.isEmpty
+              ? Center(
+                  child: Text(
+                    'No messages yet. Start the conversation!',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16.0),
+                  reverse: true,
+                  itemCount: _messages.length,
+                  itemBuilder: (context, index) {
+                    final message = _messages[_messages.length - 1 - index];
+                    final isCurrentUser = message.userId == _auth.currentUser?.uid;
+                    return _buildMessageBubble(message, isCurrentUser);
+                  },
+                ),
+        ),
+        // Message input
+        Container(
+          padding: const EdgeInsets.all(12.0),
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(
+                color: Theme.of(context).colorScheme.outline,
+                width: 0.5,
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _messageController,
+                  decoration: InputDecoration(
+                    hintText: 'Type a message...',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
+                  maxLines: null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              CircleAvatar(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                child: IconButton(
+                  icon: const Icon(Icons.send, color: Colors.white),
+                  onPressed: _sendMessage,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMessageBubble(ClubMessage message, bool isCurrentUser) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: isCurrentUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        children: [
+          if (!isCurrentUser) ...[
+            CircleAvatar(
+              backgroundImage: message.userImage != null
+                  ? NetworkImage(message.userImage!)
+                  : null,
+              radius: 16,
+              child: message.userImage == null
+                  ? Text(message.userName[0].toUpperCase())
+                  : null,
+            ),
+            const SizedBox(width: 8),
+          ],
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isCurrentUser
+                    ? colorScheme.primary
+                    : colorScheme.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: !isCurrentUser
+                    ? Border.all(color: colorScheme.outline.withOpacity(0.3))
+                    : null,
+              ),
+              child: Column(
+                crossAxisAlignment:
+                    isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                children: [
+                  if (!isCurrentUser)
+                    Text(
+                      message.userName,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  Text(
+                    message.content,
+                    style: TextStyle(
+                      color: isCurrentUser ? Colors.white : null,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatMessageTime(message.timestamp),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      fontSize: 10,
+                      color: isCurrentUser ? Colors.white70 : null,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (isCurrentUser) ...[
+            const SizedBox(width: 8),
+            CircleAvatar(
+              backgroundImage: _auth.currentUser?.photoURL != null
+                  ? NetworkImage(_auth.currentUser!.photoURL!)
+                  : null,
+              radius: 16,
+              child: _auth.currentUser?.photoURL == null
+                  ? Text(_auth.currentUser?.displayName?[0].toUpperCase() ?? 'U')
+                  : null,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty || _club == null) return;
+
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return;
+
+    try {
+      // Create message
+      final message = ClubMessage(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        clubId: _club!.id,
+        userId: currentUser.uid,
+        userName: currentUser.displayName ?? 'Anonymous',
+        userImage: currentUser.photoURL,
+        content: text,
+        timestamp: DateTime.now(),
+      );
+
+      // Clear input immediately for better UX
+      _messageController.clear();
+
+      // Add to local list
+      setState(() {
+        _messages.add(message);
+      });
+
+      // Save message to Firestore
+      await _clubService.addMessage(_club!.id, message);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to send message: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  String _formatMessageTime(DateTime time) {
+    final now = DateTime.now();
+    final difference = now.difference(time);
+
+    if (difference.inMinutes < 1) {
+      return 'now';
+    } else if (difference.inHours < 1) {
+      return '${difference.inMinutes}m ago';
+    } else if (difference.inDays < 1) {
+      return '${difference.inHours}h ago';
+    } else {
+      return '${time.month}/${time.day}';
+    }
+  }
+
+  Widget _buildEventCard(ClubActivity event) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final dateStr = event.eventDate != null ? _formatEventDate(event.eventDate!) : 'TBD';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12.0),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Event header with date and action buttons
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.calendar_today, color: colorScheme.primary),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        event.title,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        dateStr,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colorScheme.outline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Calendar and Share buttons
+                IconButton(
+                  icon: const Icon(Icons.calendar_today, color: Colors.blueAccent),
+                  tooltip: 'Add to Google Calendar',
+                  onPressed: () => _addEventToGoogleCalendar(event),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.share, color: Colors.green),
+                  tooltip: 'Share Event',
+                  onPressed: () {
+                    final eventLink = 'https://livegreen.app/clubs/${_club?.id}/events/${event.id}';
+                    final shareText = '''
+🎉 ${event.title}
+
+📅 $dateStr
+📍 ${event.location ?? _club?.location ?? 'Location TBA'}
+
+${event.content ?? ''}
+
+🌱 Join us at ${_club?.name ?? ''}!
+$eventLink
+''';
+                    Share.share(shareText, subject: 'LiveGreen Club Event');
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // Event description
+            Text(
+              event.content ?? 'No description',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            if (event.location != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(Icons.location_on, size: 16, color: colorScheme.outline),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(event.location!)),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -608,6 +1018,27 @@ class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTicker
                     ],
                   ),
                 ),
+                // Share and Calendar buttons for events
+                if (activity.type.toLowerCase() == 'event') ...[
+                  IconButton(
+                    icon: const Icon(Icons.calendar_today, color: Colors.blueAccent),
+                    tooltip: 'Add to Google Calendar',
+                    onPressed: () => _addEventToGoogleCalendar(activity),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.share, color: Colors.green),
+                    tooltip: 'Share Event',
+                    onPressed: () {
+                      final shareText =
+                          '''Join the event "${activity.title}" at ${_club?.name ?? ''}!
+
+${activity.content ?? ''}
+
+${_club?.location ?? ''}''';
+                      Share.share(shareText, subject: 'LiveGreen Club Event');
+                    },
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 12),
@@ -636,6 +1067,7 @@ class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTicker
                   fontSize: 10,
                   color: colorScheme.primary,
                   fontWeight: FontWeight.bold,
+// ...existing code...
                 ),
               ),
             ),
@@ -751,6 +1183,31 @@ class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTicker
       return '${difference.inMinutes}m ago';
     } else {
       return 'just now';
+    }
+  }
+
+  String _formatEventDate(DateTime date) {
+    // Format event dates to show when they're happening
+    final now = DateTime.now();
+    if (date.isAfter(now)) {
+      final difference = date.difference(now);
+      if (difference.inDays > 0) {
+        return 'In ${difference.inDays} day${difference.inDays == 1 ? '' : 's'}';
+      } else if (difference.inHours > 0) {
+        return 'In ${difference.inHours}h';
+      } else {
+        return 'Today';
+      }
+    } else {
+      // Past event
+      final difference = now.difference(date);
+      if (difference.inDays > 0) {
+        return '${difference.inDays}d ago';
+      } else if (difference.inHours > 0) {
+        return '${difference.inHours}h ago';
+      } else {
+        return 'just now';
+      }
     }
   }
 }

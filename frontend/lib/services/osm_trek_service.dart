@@ -149,7 +149,9 @@ out center;
     TrekCategory? specificCategory,
     bool forceRefresh = false,
   }) async {
-    final cacheKey = _getCacheKey(latitude, longitude, radiusKm);
+    // Cap radius to 100km to avoid API timeouts and excessive data
+    final effectiveRadius = radiusKm > 100 ? 100.0 : radiusKm;
+    final cacheKey = _getCacheKey(latitude, longitude, effectiveRadius);
     
     if (!forceRefresh && _pathsCache.containsKey(cacheKey) && _isCacheValid(cacheKey)) {
       var cached = _pathsCache[cacheKey]!;
@@ -160,19 +162,25 @@ out center;
       return cached;
     }
 
-    final radiusMeters = (radiusKm * 1000).toInt();
+    final radiusMeters = (effectiveRadius * 1000).toInt();
+    // Use 'out center' for faster results - we don't need full geometry for listing
     final query = '''
 [out:json][timeout:15];
 (
-  way["highway"="footway"](around:$radiusMeters,$latitude,$longitude);
-  way["highway"="path"](around:$radiusMeters,$latitude,$longitude);
-  way["highway"="track"](around:$radiusMeters,$latitude,$longitude);
-  way["highway"="cycleway"](around:$radiusMeters,$latitude,$longitude);
+  way["highway"="footway"]["name"](around:$radiusMeters,$latitude,$longitude);
+  way["highway"="path"]["name"](around:$radiusMeters,$latitude,$longitude);
+  way["highway"="track"]["name"](around:$radiusMeters,$latitude,$longitude);
+  way["highway"="cycleway"]["name"](around:$radiusMeters,$latitude,$longitude);
   way["leisure"="park"](around:$radiusMeters,$latitude,$longitude);
   way["leisure"="nature_reserve"](around:$radiusMeters,$latitude,$longitude);
+  way["natural"="wood"]["name"](around:$radiusMeters,$latitude,$longitude);
   node["leisure"="park"](around:$radiusMeters,$latitude,$longitude);
+  node["natural"="peak"](around:$radiusMeters,$latitude,$longitude);
+  node["tourism"="viewpoint"](around:$radiusMeters,$latitude,$longitude);
+  relation["route"="hiking"](around:$radiusMeters,$latitude,$longitude);
+  relation["route"="foot"](around:$radiusMeters,$latitude,$longitude);
 );
-out body geom;
+out center;
 ''';
 
     try {
@@ -278,7 +286,7 @@ out body geom;
       if (lat != null && lon != null) {
         startPoint = GeoPoint(latitude: lat, longitude: lon);
       }
-    } else if (type == 'way') {
+    } else if (type == 'way' || type == 'relation') {
       // Check for center coordinates first
       final center = element['center'] as Map<String, dynamic>?;
       if (center != null) {
@@ -298,6 +306,23 @@ out body geom;
         }).toList();
         startPoint ??= routePoints.first;
         distance = _calculateRouteDistance(routePoints);
+      }
+      
+      // For relations, try to get bounds center if no center/geometry
+      if (startPoint == null) {
+        final bounds = element['bounds'] as Map<String, dynamic>?;
+        if (bounds != null) {
+          final minlat = bounds['minlat'] as num?;
+          final maxlat = bounds['maxlat'] as num?;
+          final minlon = bounds['minlon'] as num?;
+          final maxlon = bounds['maxlon'] as num?;
+          if (minlat != null && maxlat != null && minlon != null && maxlon != null) {
+            startPoint = GeoPoint(
+              latitude: (minlat + maxlat) / 2,
+              longitude: (minlon + maxlon) / 2,
+            );
+          }
+        }
       }
     }
 
@@ -372,6 +397,13 @@ out body geom;
     if (highway == 'path') return 'Trail';
     if (highway == 'track') return 'Nature Track';
     if (highway == 'cycleway') return 'Cycling Path';
+    
+    // Hiking routes
+    final route = tags['route'] as String?;
+    if (route == 'hiking' || route == 'foot') return 'Hiking Trail';
+    
+    // Natural features
+    if (natural == 'wood') return 'Forest';
     
     return null;
   }

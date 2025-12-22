@@ -5,7 +5,7 @@ import '../../services/club_service.dart';
 import '../community/club_details_screen.dart';
 
 class AdminClubApprovalScreen extends StatefulWidget {
-  const AdminClubApprovalScreen({Key? key}) : super(key: key);
+  const AdminClubApprovalScreen({super.key});
 
   @override
   State<AdminClubApprovalScreen> createState() => _AdminClubApprovalScreenState();

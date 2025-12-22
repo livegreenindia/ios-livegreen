@@ -147,12 +147,9 @@ class MainActivity : FlutterActivity() {
 						val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
 						val pm = packageManager
 
-						// identifiers to classify social media
+						// identifiers to classify social media (only major platforms)
 						val identifiers = listOf(
-							"youtube", "revanced", "vanced", "instagram", "snapchat", "pinterest",
-							"facebook", "meta", "twitter", "x", "threads", "tiktok", "reels", "shorts",
-							"whatsapp", "telegram", "discord", "reddit", "linkedin", "tumblr", "mastodon",
-							"messenger", "signal", "viber", "wechat", "line", "kik", "skype"
+							"youtube", "instagram", "facebook", "snapchat"
 						)
 
 						// Use a map to aggregate usage by package

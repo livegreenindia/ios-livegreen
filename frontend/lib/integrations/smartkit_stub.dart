@@ -165,8 +165,7 @@ class SmartKitService {
 /// Supported device types for SmartKit integration
 enum SmartKitDeviceType {
   generic,
-  fitbit,
-  samsung,
+  healthConnect, // Replaces Fitbit and Samsung with unified Health Connect API
   garmin,
   apple,
   google,
@@ -178,10 +177,8 @@ extension SmartKitDeviceTypeExtension on SmartKitDeviceType {
     switch (this) {
       case SmartKitDeviceType.generic:
         return 'Generic Wearable';
-      case SmartKitDeviceType.fitbit:
-        return 'Fitbit';
-      case SmartKitDeviceType.samsung:
-        return 'Samsung Health';
+      case SmartKitDeviceType.healthConnect:
+        return 'Health Connect';
       case SmartKitDeviceType.garmin:
         return 'Garmin';
       case SmartKitDeviceType.apple:
@@ -195,10 +192,8 @@ extension SmartKitDeviceTypeExtension on SmartKitDeviceType {
     switch (this) {
       case SmartKitDeviceType.generic:
         return '⌚';
-      case SmartKitDeviceType.fitbit:
-        return '💚';
-      case SmartKitDeviceType.samsung:
-        return '💙';
+      case SmartKitDeviceType.healthConnect:
+        return '❤️';
       case SmartKitDeviceType.garmin:
         return '🟢';
       case SmartKitDeviceType.apple:

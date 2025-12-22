@@ -5,6 +5,7 @@ import 'splash_screen.dart';
 import 'pages/welcome.dart';
 import '../screens/auth/login.dart';
 import '../../config/routes.dart';
+import '../services/location_prefetch_service.dart';
 
 class SplashWrapper extends StatefulWidget {
   const SplashWrapper({super.key});
@@ -40,8 +41,8 @@ class _SplashWrapperState extends State<SplashWrapper> {
   void _onSplashComplete() {
     if (!mounted) return;
     
+    // Navigate based on auth state (no location dialog at startup)
     if (_isLoggedIn) {
-      // Directly navigate to home replacing the stack
       Navigator.pushReplacementNamed(context, AppRoutes.home);
     } else {
       setState(() => _showSplash = false);

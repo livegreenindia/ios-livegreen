@@ -99,6 +99,10 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
   }
 
   void _startRecording() async {
+    // Show prominent disclosure for background location (required by Google Play)
+    final confirmed = await _showBackgroundLocationDisclosure();
+    if (!confirmed) return;
+    
     try {
       await _locationService.startRecording();
 
@@ -243,6 +247,74 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
     } else {
       if (mounted) Navigator.pop(context);
     }
+  }
+
+  /// Show prominent disclosure for background location access (required by Google Play)
+  Future<bool> _showBackgroundLocationDisclosure() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.location_on, color: Colors.green, size: 48),
+        title: const Text('Location Access Required'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'To record your trek accurately, LiveGreen needs to access your location continuously.',
+              style: TextStyle(fontSize: 15),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'This includes when the app is in the background, so your route is tracked even if you:',
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+            SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.camera_alt, size: 18, color: Colors.grey),
+                SizedBox(width: 8),
+                Text('Take photos during your trek'),
+              ],
+            ),
+            SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.message, size: 18, color: Colors.grey),
+                SizedBox(width: 8),
+                Text('Check messages briefly'),
+              ],
+            ),
+            SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.music_note, size: 18, color: Colors.grey),
+                SizedBox(width: 8),
+                Text('Control music playback'),
+              ],
+            ),
+            SizedBox(height: 16),
+            Text(
+              'A notification will show your recording status. You can stop recording at any time.',
+              style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('Start Recording'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   void _discardRecording() {

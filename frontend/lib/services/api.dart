@@ -368,7 +368,7 @@ class ApiService {
           : resp.body.replaceAll(RegExp(r'<[^>]*>'), ' ').trim();
     }
     final msg =
-        'Failed to create Razorpay order (${resp.statusCode}) at ${uri.toString()}: ${bodyPreview.length > 400 ? bodyPreview.substring(0, 400) + "..." : bodyPreview}';
+        'Failed to create Razorpay order (${resp.statusCode}) at ${uri.toString()}: ${bodyPreview.length > 400 ? "${bodyPreview.substring(0, 400)}..." : bodyPreview}';
     throw Exception(msg);
   }
 
@@ -401,7 +401,7 @@ class ApiService {
             : resp.body.replaceAll(RegExp(r'<[^>]*>'), ' ').trim();
       }
       throw Exception(
-        'Payment verification failed (${resp.statusCode}) at ${uri.toString()}: ${bodyPreview.length > 400 ? bodyPreview.substring(0, 400) + "..." : bodyPreview}',
+        'Payment verification failed (${resp.statusCode}) at ${uri.toString()}: ${bodyPreview.length > 400 ? "${bodyPreview.substring(0, 400)}..." : bodyPreview}',
       );
     }
   }

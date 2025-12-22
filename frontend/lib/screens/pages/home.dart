@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import 'activity.dart';
 import 'progress.dart';
-import 'community.dart';
+import '../community/clubs_list_screen.dart';
 import 'profile.dart';
 import '../trek/trek_list_screen.dart';
 
@@ -19,7 +19,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final List<Widget> _pages = const [
     ActivityPage(),
     ProgressPage(),
-    CommunityPage(),
+    ClubsListScreen(),
     TrekListScreen(),
     ProfilePage(),
   ];
@@ -45,8 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.eco_outlined),
-            selectedIcon: Icon(Icons.eco),
+            icon: Icon(Icons.local_activity_outlined),
+            selectedIcon: Icon(Icons.local_activity),
             label: 'Activities',
           ),
           NavigationDestination(
@@ -55,9 +55,9 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Progress',
           ),
           NavigationDestination(
-            icon: Icon(Icons.forum_outlined),
-            selectedIcon: Icon(Icons.forum),
-            label: 'Community',
+            icon: Icon(Icons.groups_outlined),
+            selectedIcon: Icon(Icons.groups),
+            label: 'Clubs',
           ),
           NavigationDestination(
             icon: Icon(Icons.explore_outlined),

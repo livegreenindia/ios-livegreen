@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../services/api.dart';
 import '../../services/completion_store.dart';
 import '../../services/local_cache.dart';
@@ -201,19 +202,10 @@ class _ActivityPageState extends State<ActivityPage> {
             RecentDataStore.recordActivityComplete(100, DateTime.now());
 
             if (!mounted) return;
-            messengerBefore?.showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const Icon(Icons.check_circle, color: Colors.white),
-                    const SizedBox(width: 12),
-                    Text('Activity completed successfully'),
-                  ],
-                ),
-                backgroundColor: Colors.green,
-                duration: const Duration(seconds: 2),
-              ),
-            );
+            
+            // Show completion dialog with share option
+            _showCompletionDialog(activity);
+            
             notifierBefore.triggerRefresh();
           } catch (e) {
             final errorStr = e.toString();
@@ -444,7 +436,7 @@ class _ActivityPageState extends State<ActivityPage> {
                       const SizedBox(height: 8),
                       Row(
                         children: [
-                          // Show info icon for wellness activities with detailed information
+                          // Show clock icon for mindfulness/MBSR activities, info icon for others with details
                           if (activity['isWellnessActivity'] == true &&
                               (activity['description'] != null ||
                                   activity['tips'] != null ||
@@ -464,13 +456,18 @@ class _ActivityPageState extends State<ActivityPage> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
-                                      Icons.info_outline,
+                                      // Use clock icon for mindfulness/MBSR activities
+                                      _isMindfulnessActivity(activity) 
+                                          ? Icons.access_time 
+                                          : Icons.info_outline,
                                       color: primaryColor,
                                       size: 14,
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
-                                      'Details',
+                                      _isMindfulnessActivity(activity) 
+                                          ? 'Practice' 
+                                          : 'Details',
                                       style: GoogleFonts.manrope(
                                         fontSize: 11,
                                         fontWeight: FontWeight.w600,
@@ -881,52 +878,6 @@ class _ActivityPageState extends State<ActivityPage> {
 
     return Scaffold(
       backgroundColor: isDark ? backgroundDark : backgroundLight,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    primaryColor.withAlpha(30),
-                    primaryColor.withAlpha(15),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.eco, color: primaryColor, size: 22),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              "Eco Activities",
-              style: GoogleFonts.manrope(
-                fontWeight: FontWeight.w800,
-                fontSize: 18,
-                color: primaryColor,
-                letterSpacing: -0.5,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              Icons.refresh,
-              color: _activitiesLoading ? Colors.grey : primaryColor,
-              size: 22,
-            ),
-            tooltip: 'Refresh Activities',
-            onPressed: _activitiesLoading ? null : _loadActivities,
-          ),
-        ],
-      ),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: _loadActivities,
@@ -934,6 +885,64 @@ class _ActivityPageState extends State<ActivityPage> {
           child: ListView(
             padding: const EdgeInsets.all(18),
             children: [
+              // Custom header matching progress screen style
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [primaryColor, const Color(0xFF43A047)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: primaryColor.withOpacity(0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.local_activity, color: Colors.white, size: 28),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Activities",
+                          style: GoogleFonts.manrope(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                        Text(
+                          "Complete daily activities",
+                          style: GoogleFonts.manrope(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Refresh button moved to header
+                  IconButton(
+                    icon: Icon(
+                      Icons.refresh,
+                      color: _activitiesLoading ? Colors.grey : (isDark ? Colors.white70 : Colors.black54),
+                      size: 22,
+                    ),
+                    tooltip: 'Refresh Activities',
+                    onPressed: _activitiesLoading ? null : _loadActivities,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 28),
               // Today's Progress Card
               _buildProgressCard(),
               const SizedBox(height: 16),
@@ -959,13 +968,13 @@ class _ActivityPageState extends State<ActivityPage> {
                                 Row(
                                   children: [
                                     Icon(
-                                      Icons.spa,
+                                      Icons.sentiment_satisfied_alt,
                                       size: 16,
                                       color: primaryColor,
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
-                                      "Wellness Check",
+                                      "Happiness Check",
                                       style: GoogleFonts.manrope(
                                         fontWeight: FontWeight.w800,
                                         fontSize: 15,
@@ -977,7 +986,7 @@ class _ActivityPageState extends State<ActivityPage> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  "How's your inner garden today?",
+                                  "How happy are you feeling today?",
                                   style: GoogleFonts.manrope(
                                     fontSize: 12,
                                     color: Colors.grey[600],
@@ -1094,7 +1103,7 @@ class _ActivityPageState extends State<ActivityPage> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            "🥀 Wilting",
+                            "😢 Unhappy",
                             style: GoogleFonts.manrope(
                               fontSize: 11.5,
                               fontWeight: FontWeight.w500,
@@ -1102,7 +1111,7 @@ class _ActivityPageState extends State<ActivityPage> {
                             ),
                           ),
                           Text(
-                            "🌳 Flourishing",
+                            "😊 Very Happy",
                             style: GoogleFonts.manrope(
                               fontSize: 11.5,
                               fontWeight: FontWeight.w500,
@@ -1286,7 +1295,7 @@ class _ActivityPageState extends State<ActivityPage> {
                                         children: [
                                           Icon(
                                             _canLogWellness
-                                                ? Icons.spa
+                                                ? Icons.sentiment_satisfied_alt
                                                 : Icons.lock_clock,
                                             color: Colors.white,
                                             size: 18,
@@ -1294,7 +1303,7 @@ class _ActivityPageState extends State<ActivityPage> {
                                           const SizedBox(width: 8),
                                           Text(
                                             _canLogWellness
-                                                ? 'Log Wellness'
+                                                ? 'Submit Happiness'
                                                 : 'Logged Today',
                                             style: GoogleFonts.manrope(
                                               fontWeight: FontWeight.w700,
@@ -1638,12 +1647,12 @@ class _ActivityPageState extends State<ActivityPage> {
   }
 
   String _getHappinessEmoji(int level) {
-    // Nature-themed wellness emojis
-    if (level <= 2) return '🥀'; // Wilted flower
-    if (level <= 4) return '🍂'; // Fallen leaf
-    if (level <= 6) return '🌱'; // Seedling
-    if (level <= 8) return '🌿'; // Herb
-    return '🌳'; // Full tree
+    // Happiness-themed emojis
+    if (level <= 2) return '😢'; // Very sad
+    if (level <= 4) return '😕'; // Unhappy
+    if (level <= 6) return '😐'; // Neutral
+    if (level <= 8) return '😊'; // Happy
+    return '😄'; // Very happy
   }
 
   /// Build the progress card showing today's activity completion
@@ -1657,24 +1666,24 @@ class _ActivityPageState extends State<ActivityPage> {
     Color progressColor;
 
     if (_completionPercent >= 80) {
-      progressEmoji = '🌳';
-      progressMessage = 'Eco champion! You\'re making a real difference!';
+      progressEmoji = '�';
+      progressMessage = 'Outstanding! You\'re crushing your goals!';
       progressColor = const Color(0xFF2E7D32);
     } else if (_completionPercent >= 60) {
-      progressEmoji = '🌿';
-      progressMessage = 'Great green progress! Keep it up!';
+      progressEmoji = '⭐';
+      progressMessage = 'Great progress! Keep it up!';
       progressColor = const Color(0xFF43A047);
     } else if (_completionPercent >= 40) {
-      progressEmoji = '🌱';
-      progressMessage = 'Growing your eco impact!';
+      progressEmoji = '📈';
+      progressMessage = 'Making steady progress!';
       progressColor = primaryColor;
     } else if (_completionPercent >= 20) {
-      progressEmoji = '🍃';
-      progressMessage = 'Every eco action matters!';
+      progressEmoji = '👍';
+      progressMessage = 'Every step counts!';
       progressColor = const Color(0xFF66BB6A);
     } else {
-      progressEmoji = '🌍';
-      progressMessage = 'Start making the planet greener!';
+      progressEmoji = '🚀';
+      progressMessage = 'Ready to start your journey!';
       progressColor = const Color(0xFF81C784);
     }
 
@@ -1735,10 +1744,10 @@ class _ActivityPageState extends State<ActivityPage> {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.eco, size: 14, color: progressColor),
+                          Icon(Icons.trending_up, size: 14, color: progressColor),
                           const SizedBox(width: 4),
                           Text(
-                            "TODAY'S ECO IMPACT",
+                            "TODAY'S PROGRESS",
                             style: GoogleFonts.manrope(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
@@ -1816,7 +1825,7 @@ class _ActivityPageState extends State<ActivityPage> {
                         8,
                     top: -2,
                     child: Icon(
-                      Icons.eco,
+                      Icons.star,
                       size: 16,
                       color: Colors.white.withAlpha(200),
                     ),
@@ -1870,6 +1879,123 @@ class _ActivityPageState extends State<ActivityPage> {
           ),
         ),
       ],
+    );
+  }
+
+  /// Check if activity is a mindfulness/MBSR activity (shows clock instead of details)
+  bool _isMindfulnessActivity(Map<String, dynamic> activity) {
+    final title = (activity['title'] ?? '').toString().toLowerCase();
+    final category = (activity['category'] ?? '').toString().toLowerCase();
+    return category == 'mindfulness' ||
+        title.contains('mbsr') ||
+        title.contains('mindfulness') ||
+        title.contains('breathing') ||
+        title.contains('meditation');
+  }
+
+  /// Show completion dialog with share option
+  void _showCompletionDialog(Map<String, dynamic> activity) {
+    final activityTitle = activity['title'] ?? 'Activity';
+    final category = activity['category'] ?? '';
+    
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.check_circle,
+                  color: Colors.green,
+                  size: 64,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Well Done! 🎉',
+                style: GoogleFonts.manrope(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'You completed "$activityTitle"',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.manrope(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Share your achievement with friends!',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  color: Colors.grey[500],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(
+                'Close',
+                style: GoogleFonts.manrope(
+                  color: Colors.grey[600],
+                ),
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _shareActivityCompletion(activityTitle, category);
+              },
+              icon: const Icon(Icons.share, size: 18),
+              label: Text(
+                'Share',
+                style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Share activity completion to social media
+  void _shareActivityCompletion(String activityTitle, String category) {
+    final String shareText = '''� I just completed "$activityTitle" on LiveGreen! 
+
+Taking small steps towards a healthier, happier lifestyle. 💚✨
+
+Join me on LiveGreen and start your wellness journey today!
+
+#LiveGreen #Wellness #HealthyLiving #PersonalGrowth''';
+
+    Share.share(
+      shareText,
+      subject: 'I completed an activity on LiveGreen!',
     );
   }
 

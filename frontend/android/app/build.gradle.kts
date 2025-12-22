@@ -36,14 +36,10 @@ android {
         applicationId = "com.livegreen.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 26 // Required for health package (Health Connect)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // Keep native debug symbols for crash reporting
-        ndk {
-            debugSymbolLevel = "SYMBOL_TABLE"
-        }
         
         // Google Maps API key from key.properties
         val mapsApiKey = keystoreProperties["MAPS_API_KEY"] as String? ?: ""

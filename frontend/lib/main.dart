@@ -42,8 +42,7 @@ Future<void> main() async {
   // Initialize notification service
   await NotificationService.initialize();
   
-  // Initialize location permission at startup
-  await LocationTrackingService.initializePermission();
+  // Location permission is now requested when needed (not at startup)
   
   // Enable persistent auth - keeps user signed in (web only)
   // `setPersistence` is a web-only API; guard it to avoid runtime errors on mobile.

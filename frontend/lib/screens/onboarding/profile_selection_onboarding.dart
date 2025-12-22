@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../config/routes.dart';
+import '../../services/location_prefetch_service.dart';
 import '../../theme/app_theme.dart';
 
 /// Onboarding screen for selecting wellness profile
@@ -83,6 +84,10 @@ class _ProfileSelectionOnboardingState extends State<ProfileSelectionOnboarding>
             duration: const Duration(seconds: 3),
           ),
         );
+
+        // Request basic location permission for exploration features
+        await LocationPrefetchService.requestBasicPermission(context);
+        if (!mounted) return;
 
         // Navigate to home
         Navigator.pushReplacementNamed(context, AppRoutes.home);

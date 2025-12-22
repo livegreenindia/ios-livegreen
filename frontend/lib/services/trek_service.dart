@@ -210,6 +210,13 @@ class TrekService {
         treks = treks.where((trek) => trek.category == category).toList();
       }
       
+      // For POI category, only show approved user-submitted places
+      if (category == TrekCategory.pointOfInterest) {
+        treks = treks.where((trek) => 
+          trek.isUserSubmitted && trek.approvalStatus == PlaceApprovalStatus.approved
+        ).toList();
+      }
+      
       treks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       
       return treks.take(limit).toList();
@@ -659,6 +666,13 @@ class TrekService {
     // Filter by public
     treks = treks.where((trek) => trek.isPublic).toList();
     
+    // For POI category, only show approved user-submitted places
+    if (category == TrekCategory.pointOfInterest) {
+      treks = treks.where((trek) => 
+        trek.isUserSubmitted && trek.approvalStatus == PlaceApprovalStatus.approved
+      ).toList();
+    }
+    
     // Calculate distances and filter by radius
     final treksWithDistance = <MapEntry<Trek, double>>[];
     for (final trek in treks) {
@@ -710,6 +724,14 @@ class TrekService {
     debugPrint('Using fallback nearby treks method - fetching all treks');
     final treks = await getTreks(category: category, limit: 100);
     debugPrint('Fallback: Got ${treks.length} treks to filter');
+    
+    // For POI category, only show approved user-submitted places
+    var filteredTreks = treks;
+    if (category == TrekCategory.pointOfInterest) {
+      filteredTreks = treks.where((trek) => 
+        trek.isUserSubmitted && trek.approvalStatus == PlaceApprovalStatus.approved
+      ).toList();
+    }
     
     final nearbyTreks = <MapEntry<Trek, double>>[];
     for (final trek in treks) {
@@ -798,6 +820,13 @@ class TrekService {
         treks = treks.where((trek) => trek.category == category).toList();
       }
       treks = treks.where((trek) => trek.isPublic).toList();
+      
+      // For POI category, only show approved user-submitted places
+      if (category == TrekCategory.pointOfInterest) {
+        treks = treks.where((trek) => 
+          trek.isUserSubmitted && trek.approvalStatus == PlaceApprovalStatus.approved
+        ).toList();
+      }
       
       // Filter and sort by distance
       final treksWithDistance = <MapEntry<Trek, double>>[];

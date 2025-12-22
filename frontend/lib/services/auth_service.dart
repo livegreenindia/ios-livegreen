@@ -88,6 +88,44 @@ class AuthService {
     await user.reload();
   }
 
+  /// Send email verification to current user
+  Future<void> sendEmailVerification() async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception('No signed-in user');
+    
+    // Reload user data to get latest email verification status
+    await user.reload();
+    final refreshedUser = _auth.currentUser;
+    
+    if (refreshedUser != null && !refreshedUser.emailVerified) {
+      await refreshedUser.sendEmailVerification();
+    }
+  }
+
+  /// Check if current user's email is verified
+  Future<bool> isEmailVerified() async {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+    
+    // Reload to get latest verification status from server
+    await user.reload();
+    final refreshedUser = _auth.currentUser;
+    return refreshedUser?.emailVerified ?? false;
+  }
+
+  /// Reload current user data from Firebase
+  Future<void> reloadUser() async {
+    final user = _auth.currentUser;
+    if (user != null) {
+      await user.reload();
+    }
+  }
+
+  /// Get current user with fresh data
+  User? getCurrentUser() {
+    return _auth.currentUser;
+  }
+
   /// Development helper: when running locally against the Auth emulator,
   /// create or sign in a deterministic dev user so local API calls have a
   /// valid ID token. This avoids needing to complete the OAuth popup during

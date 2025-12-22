@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../config/routes.dart';
 import '../../services/auth_service.dart';
 import '../../services/completion_store.dart';
+import '../../services/location_prefetch_service.dart';
 import '../../utils/error_handler.dart';
 import '../../theme/app_theme.dart';
 import '../onboarding/profile_selection_onboarding.dart';
@@ -45,7 +46,9 @@ class _SignupScreenState extends State<SignupScreen> {
       final hasProfile = doc.exists && doc.data()?['wellness_profile'] != null;
       
       if (hasProfile) {
-        // User has profile, go to home
+        // User has profile, request basic location permission and go to home
+        await LocationPrefetchService.requestBasicPermission(context);
+        if (!mounted) return;
         Navigator.pushReplacementNamed(context, AppRoutes.home);
       } else {
         // No profile, show onboarding
@@ -333,29 +336,68 @@ class _SignupScreenState extends State<SignupScreen> {
                                 
                                 setState(() => _loading = true);
                                 try {
-                                  await AuthService().signUpWithEmail(email: email, password: pass);
-                                  // save display name
+                                  final userCredential = await AuthService().signUpWithEmail(email: email, password: pass);
+                                  
+                                  // Send email verification
+                                  await AuthService().sendEmailVerification();
+                                  
+                                  // Save display name
                                   if (name.isNotEmpty) {
                                     try { 
                                       await AuthService().updateDisplayName(name); 
                                     } catch (_) { /* ignore */ }
                                   }
+                                  
                                   if (!context.mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: const Row(
-                                        children: [
-                                          Icon(Icons.check_circle, color: Colors.white),
-                                          SizedBox(width: 12),
-                                          Expanded(child: Text('Account created successfully. Welcome to LiveGreen!')),
-                                        ],
+                                  
+                                  // Show verification required message
+                                  showDialog(
+                                    context: context,
+                                    barrierDismissible: false,
+                                    builder: (context) => AlertDialog(
+                                      title: const Text('Email Verification Required'),
+                                      content: Text(
+                                        'We\'ve sent a verification email to $email. '
+                                        'Please check your email and click the verification link before signing in.'
                                       ),
-                                      backgroundColor: Colors.green.shade600,
-                                      behavior: SnackBarBehavior.floating,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () {
+                                            Navigator.of(context).pop(); // Close dialog
+                                            Navigator.of(context).pushReplacementNamed('/login'); // Go to login
+                                          },
+                                          child: const Text('Go to Login'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () async {
+                                            // Resend verification email
+                                            try {
+                                              await AuthService().sendEmailVerification();
+                                              if (context.mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('Verification email sent again'),
+                                                    backgroundColor: Colors.green,
+                                                  ),
+                                                );
+                                              }
+                                            } catch (e) {
+                                              if (context.mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('Failed to resend: $e'),
+                                                    backgroundColor: Colors.red,
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                          },
+                                          child: const Text('Resend Email'),
+                                        ),
+                                      ],
                                     ),
                                   );
-                                  await _checkProfileAndNavigate();
+                                  
                                 } catch (e) {
                                   if (!context.mounted) return;
                                   final errorMessage = ErrorHandler.getAuthErrorMessage(e);

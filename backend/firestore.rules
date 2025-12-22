@@ -191,6 +191,22 @@ service cloud.firestore {
                       (get(/databases/$(database)/documents/clubs/$(clubId)).data.leaderIds.hasAny([request.auth.uid]) ||
                        isAdmin() || isAdminByRole());
       }
+      
+      // Messages subcollection
+      match /messages/{messageId} {
+        // Read: only club members can read messages
+        allow read: if isAuthenticated() && 
+                       get(/databases/$(database)/documents/clubs/$(clubId)).data.memberIds.hasAny([request.auth.uid]);
+        
+        // Create: only club members can send messages
+        allow create: if isAuthenticated() && 
+                        get(/databases/$(database)/documents/clubs/$(clubId)).data.memberIds.hasAny([request.auth.uid]) &&
+                        request.resource.data.userId == request.auth.uid;
+        
+        // Update/Delete: only message author can delete their own messages
+        allow update, delete: if isAuthenticated() && 
+                               resource.data.userId == request.auth.uid;
+      }
     }
 
     // Default: deny all unmatched paths

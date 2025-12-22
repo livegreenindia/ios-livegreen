@@ -7,7 +7,7 @@ import '../../services/club_service.dart';
 import '../../config/theme.dart';
 
 class CreateClubScreen extends StatefulWidget {
-  const CreateClubScreen({Key? key}) : super(key: key);
+  const CreateClubScreen({super.key});
 
   @override
   State<CreateClubScreen> createState() => _CreateClubScreenState();

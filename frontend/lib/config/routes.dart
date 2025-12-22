@@ -6,7 +6,7 @@ import '../screens/pages/progress.dart';
 import '../screens/pages/community.dart';
 import '../screens/pages/profile.dart';
 import '../screens/pages/activity.dart';
-import '../screens/wearable_admin_screen.dart';
+import '../screens/health_connect_screen.dart';
 import '../screens/profile_selection_screen.dart';
 import '../screens/wellness_schedule_screen.dart';
 import '../screens/legal/privacy_policy_screen.dart';
@@ -20,7 +20,7 @@ class AppRoutes {
   static const progress = '/progress';
   static const community = '/community';
   static const profile = '/profile';
-  static const wearableAdmin = '/admin/wearables';
+  static const healthConnect = '/health-connect';
   static const activity = '/activity';
   static const profileSelection = '/wellness/profile-selection';
   static const wellnessSchedule = '/wellness/schedule';
@@ -44,8 +44,9 @@ class AppRoutes {
         return MaterialPageRoute(builder: (_) => const CommunityPage());
       case profile:
         return MaterialPageRoute(builder: (_) => const ProfilePage());
-      case wearableAdmin:
-        return MaterialPageRoute(builder: (_) => const WearableAdminScreen());
+      case healthConnect:
+        final uid = settings.arguments as String? ?? '';
+        return MaterialPageRoute(builder: (_) => HealthConnectScreen(uid: uid));
       case profileSelection:
         return MaterialPageRoute(builder: (_) => const ProfileSelectionScreen());
       case wellnessSchedule:

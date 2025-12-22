@@ -11,9 +11,9 @@ import '../../config/api.dart' as cfg;
 import '../../theme/app_theme.dart';
 import 'progress_refresh_notifier.dart';
 import '../../services/digital_wellbeing_service.dart';
-import '../../services/wearable_integration_service.dart';
+import '../../services/health_connect_service.dart';
 import '../../services/progress_calculator_service.dart';
-import '../integration_progress_screen.dart';
+import '../health_connect_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
@@ -48,13 +48,10 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
   // Removed _screenMinutes - no longer showing total screen time
   bool _usagePermission = false;
   List<Map<String, dynamic>> _socialMediaApps = []; // Social media usage breakdown
-  Map<String, dynamic>? _fitbitData;
-  Map<String, dynamic>? _samsungData;
-  // Aggregated summaries computed from Firestore historical `daily_metrics`
-  Map<String, dynamic>? _fitbitSummary;
-  Map<String, dynamic>? _samsungSummary;
-  final WearableIntegrationService _wearableService = WearableIntegrationService();
-  StreamSubscription<Map<String, dynamic>>? _wearableStreamSub;
+  HealthData? _healthConnectData;
+  bool _healthConnectConnected = false;
+  final HealthConnectService _healthConnectService = HealthConnectService();
+  StreamSubscription<HealthData>? _healthConnectStreamSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _dailyMetricsSub;
   StreamSubscription<User?>? _authStateSub;
   
@@ -85,32 +82,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     _listenToActivityProgress();
     // Animate chart bars
     _animateChart();
-    // Register for wearable data updates so previews can be shown inline
-    _wearableService.registerDataCallback((fitbit, samsung) {
-      if (!mounted) return;
-      setState(() {
-        if (fitbit.isNotEmpty) _fitbitData = fitbit;
-        if (samsung.isNotEmpty) _samsungData = samsung;
-      });
-    });
+    // Check Health Connect status and listen for data updates
+    _initHealthConnect();
 
-    // Listen to shared live stream (singleton) for in-progress previews
-    try {
-      _wearableStreamSub = _wearableService.dataStream.listen((map) {
-        if (!mounted) return;
-        setState(() {
-          final fit = map['fitbit'] as Map<String, dynamic>? ?? {};
-          final sam = map['samsung'] as Map<String, dynamic>? ?? {};
-          if (fit.isNotEmpty) _fitbitData = fit;
-          if (sam.isNotEmpty) _samsungData = sam;
-        });
-      });
-    } catch (_) {}
-
-    // Listen to Firestore for the most recent daily_metrics for the signed-in user
-    _listenToLatestDailyMetrics();
-    // Load aggregated wearable metrics for the selected range
-    _loadWearableAggregates();
     _animationController.forward();
   }
 
@@ -141,6 +115,36 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
         });
       }
     });
+  }
+
+  /// Initialize Health Connect and listen for data updates
+  Future<void> _initHealthConnect() async {
+    try {
+      // Actually check if we have Health Connect permissions
+      _healthConnectConnected = await _healthConnectService.checkPermissions();
+      if (mounted) setState(() {});
+      
+      // Listen to health data stream
+      _healthConnectStreamSub = _healthConnectService.dataStream.listen((data) {
+        if (!mounted) return;
+        setState(() {
+          _healthConnectData = data;
+          _healthConnectConnected = true;
+        });
+      });
+      
+      // Try to fetch initial data if authorized
+      if (_healthConnectConnected) {
+        final data = await _healthConnectService.fetchHealthData();
+        if (mounted) {
+          setState(() {
+            _healthConnectData = data;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Health Connect init error: $e');
+    }
   }
   
   /// Animate chart bars with staggered effect
@@ -189,7 +193,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       insights.add({
         'icon': '🌟',
         'title': 'Outstanding Performance!',
-        'description': 'Your average green score is ${avgCompletion.toStringAsFixed(0)}%. Keep up the excellent eco-habits!',
+        'description': 'Your average completion rate is ${avgCompletion.toStringAsFixed(0)}%. Keep up the excellent habits!',
         'color': AppColors.success,
       });
     } else if (avgCompletion >= 60) {
@@ -213,7 +217,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       insights.add({
         'icon': '📈',
         'title': 'Trending Up!',
-        'description': 'Your eco-scores are improving! Recent performance is stronger than earlier.',
+        'description': 'Your scores are improving! Recent performance is stronger than earlier.',
         'color': AppColors.primaryLight,
       });
     } else if (trend < -10) {
@@ -241,7 +245,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       insights.add({
         'icon': '💚',
         'title': 'Wellness Boost',
-        'description': 'Your eco-actions correlate with ${avgHappiness.toStringAsFixed(1)}/10 wellness. Nature is healing!',
+        'description': 'Your activities correlate with ${avgHappiness.toStringAsFixed(1)}/10 happiness. Keep it up!',
         'color': AppColors.secondaryLight,
       });
     }
@@ -352,12 +356,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
 
   @override
   void dispose() {
-    // cancel any ongoing wearable operations
+    // cancel any ongoing operations
     try {
-      _wearableService.cancel();
-    } catch (_) {}
-    try {
-      _wearableStreamSub?.cancel();
+      _healthConnectStreamSub?.cancel();
     } catch (_) {}
     try {
       _dailyMetricsSub?.cancel();
@@ -542,6 +543,8 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
   }
 
   void _attachDailyMetricsListener(String uid) {
+    // Health Connect is now used instead of Fitbit/Samsung daily metrics
+    // This listener is kept for backward compatibility but no longer updates wearable data
     try {
       _dailyMetricsSub = FirebaseFirestore.instance
           .collection('daily_metrics')
@@ -550,15 +553,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
           .limit(1)
           .snapshots()
           .listen((snap) {
-        if (!mounted) return;
-        if (snap.docs.isEmpty) return;
-        final doc = snap.docs.first.data();
-        setState(() {
-          final fit = doc['fitbit'] as Map<String, dynamic>?;
-          final sam = doc['samsung'] as Map<String, dynamic>?;
-          if (fit != null && fit.isNotEmpty) _fitbitData = Map<String, dynamic>.from(fit);
-          if (sam != null && sam.isNotEmpty) _samsungData = Map<String, dynamic>.from(sam);
-        });
+        // Data from this listener is no longer used - Health Connect provides health data
       }, onError: (e) {
         // Surface permission or other Firestore errors to UI (and optionally Notify user)
         if (!mounted) return;
@@ -887,17 +882,17 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                         final item = display[group.x.toInt()];
                         final pct = (item['completionPercent'] ?? 0).toStringAsFixed(0);
                         
-                        // Eco-themed emoji based on completion
-                        String emoji = '🌱';
+                        // Achievement-themed emoji based on completion
+                        String emoji = '🎯';
                         final pctNum = double.tryParse(pct) ?? 0;
-                        if (pctNum >= 80) emoji = '🌳';
-                        else if (pctNum >= 60) emoji = '🌿';
-                        else if (pctNum >= 40) emoji = '🌱';
-                        else if (pctNum >= 20) emoji = '🍃';
-                        else emoji = '🌍';
+                        if (pctNum >= 80) emoji = '🏆';
+                        else if (pctNum >= 60) emoji = '⭐';
+                        else if (pctNum >= 40) emoji = '🎯';
+                        else if (pctNum >= 20) emoji = '📈';
+                        else emoji = '💪';
                         
                         return BarTooltipItem(
-                          '$emoji  Green Score: $pct%',
+                          '$emoji  Completion: $pct%',
                           GoogleFonts.manrope(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
@@ -986,10 +981,10 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.eco, size: 12, color: primaryColor),
+                        Icon(Icons.trending_up, size: 12, color: primaryColor),
                         const SizedBox(width: 4),
                         Text(
-                          'Green Score %',
+                          'Completion %',
                           style: GoogleFonts.manrope(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
@@ -1414,31 +1409,31 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     final happiness = ((data['happiness'] ?? 0) as num).toDouble();
     final count = (data['count'] ?? 0) as int;
     
-    // Eco-themed color based on completion
+    // Achievement-themed color based on completion
     Color progressColor;
-    String ecoMessage;
-    String ecoEmoji;
+    String progressMessage;
+    String progressEmoji;
     
     if (completion >= 80) {
       progressColor = const Color(0xFF2E7D32);
-      ecoMessage = 'Eco Champion!';
-      ecoEmoji = '🌳';
+      progressMessage = 'Champion!';
+      progressEmoji = '🏆';
     } else if (completion >= 60) {
       progressColor = const Color(0xFF43A047);
-      ecoMessage = 'Great Progress!';
-      ecoEmoji = '🌿';
+      progressMessage = 'Great Progress!';
+      progressEmoji = '⭐';
     } else if (completion >= 40) {
       progressColor = primaryColor;
-      ecoMessage = 'On Track!';
-      ecoEmoji = '🌱';
+      progressMessage = 'On Track!';
+      progressEmoji = '📈';
     } else if (completion >= 20) {
       progressColor = const Color(0xFF66BB6A);
-      ecoMessage = 'Getting Started';
-      ecoEmoji = '🍃';
+      progressMessage = 'Getting Started';
+      progressEmoji = '🍃';
     } else {
       progressColor = Colors.grey;
-      ecoMessage = 'Start Your Journey';
-      ecoEmoji = '🌍';
+      progressMessage = 'Get Started';
+      progressEmoji = '🎯';
     }
     
     return Container(
@@ -1483,7 +1478,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                   Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(ecoEmoji, style: const TextStyle(fontSize: 28)),
+                      Text(progressEmoji, style: const TextStyle(fontSize: 28)),
                       const SizedBox(height: 4),
                       Text(
                         '${completion.toStringAsFixed(0)}%',
@@ -1500,7 +1495,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
             ),
             const SizedBox(height: 12),
             Text(
-              'Green Score',
+              'Completion Rate',
               style: GoogleFonts.manrope(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -1508,7 +1503,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
               ),
             ),
             Text(
-              ecoMessage,
+              progressMessage,
               style: GoogleFonts.manrope(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
@@ -1607,7 +1602,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      Icons.eco_outlined,
+                      Icons.show_chart,
                       size: 40,
                       color: primaryColor.withOpacity(0.6),
                     ),
@@ -1680,7 +1675,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                             ),
                           ],
                         ),
-                        child: const Icon(Icons.eco, color: Colors.white, size: 28),
+                        child: const Icon(Icons.trending_up, color: Colors.white, size: 28),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
@@ -1688,7 +1683,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              "Eco Impact",
+                              "My Progress",
                               style: GoogleFonts.manrope(
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
@@ -1696,7 +1691,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                               ),
                             ),
                             Text(
-                              "Track your green journey 🌱",
+                              "Track your personal growth",
                               style: GoogleFonts.manrope(
                                 fontSize: 14,
                                 color: Colors.grey[600],
@@ -1705,18 +1700,20 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                           ],
                         ),
                       ),
-                      // Quick access: open wearable sync screen
+                      // Quick access: open Health Connect screen
                       IconButton(
-                        tooltip: 'Sync wearables',
-                        icon: const Icon(Icons.watch, size: 22),
+                        tooltip: 'Health Connect',
+                        icon: const Icon(Icons.favorite, size: 22),
                         color: isDark ? Colors.white70 : Colors.black54,
                         onPressed: () async {
                           final user = FirebaseAuth.instance.currentUser;
                           if (user == null) {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please sign in to sync wearables')));
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please sign in to sync health data')));
                             return;
                           }
-                          Navigator.of(context).push(MaterialPageRoute(builder: (_) => IntegrationProgressScreen(uid: user.uid)));
+                          await Navigator.of(context).push(MaterialPageRoute(builder: (_) => HealthConnectScreen(uid: user.uid)));
+                          // Refresh Health Connect status when returning
+                          _initHealthConnect();
                         },
                       ),
                     ],
@@ -1831,8 +1828,8 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                         Expanded(
                           child: _buildSummaryCard(
                             context,
-                            icon: Icons.eco,
-                            title: _range == 'daily' ? 'Eco Actions' : 'Green Score',
+                            icon: Icons.check_circle,
+                            title: _range == 'daily' ? 'Activities' : 'Completion Rate',
                             value: _range == 'daily' 
                                 ? '$_todayCompletedCount/$_todayExpectedCount' 
                                 : _avgCompletion().toStringAsFixed(0),
@@ -1858,7 +1855,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                           ? "Weekly Progress"
                           : _range == 'monthly'
                               ? "Monthly Impact"
-                              : "Yearly Journey",
+                              : "Yearly Progress",
                       chartWidget: _buildCharts(),
                       showLegend: false,
                     ),
@@ -1876,25 +1873,177 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                   // _screenTimeCard(context),
                   _buildSocialMediaBreakdown(context),
                   const SizedBox(height: 20),
-                  // Inline wearable summaries (compact metric cards)
-                  if (_fitbitData != null || _fitbitSummary != null) ...[
-                    Align(alignment: Alignment.centerLeft, child: Text('Fitbit', style: TextStyle(fontWeight: FontWeight.w600))),
-                    const SizedBox(height: 6),
-                    _buildWearableSummaryCard(context, _fitbitData ?? {}, 'fitbit'),
-                    const SizedBox(height: 12),
-                  ],
-                  if (_samsungData != null || _samsungSummary != null) ...[
-                    Align(alignment: Alignment.centerLeft, child: Text('Samsung', style: TextStyle(fontWeight: FontWeight.w600))),
-                    const SizedBox(height: 6),
-                    _buildWearableSummaryCard(context, _samsungData ?? {}, 'samsung'),
-                    const SizedBox(height: 12),
-                  ],
+                  // Health Connect data display
+                  _buildHealthConnectSection(context),
                   const SizedBox(height: 20),
                 ],
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// Build Health Connect section with health metrics
+  Widget _buildHealthConnectSection(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.03) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.favorite, color: AppColors.primary, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Health Connect',
+                      style: GoogleFonts.manrope(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      _healthConnectConnected ? 'Connected' : 'Not connected',
+                      style: GoogleFonts.manrope(
+                        fontSize: 12,
+                        color: _healthConnectConnected ? Colors.green : Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!_healthConnectConnected)
+                TextButton.icon(
+                  onPressed: () async {
+                    final user = FirebaseAuth.instance.currentUser;
+                    await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => HealthConnectScreen(uid: user?.uid ?? ''),
+                    ));
+                    // Refresh status when returning
+                    _initHealthConnect();
+                  },
+                  icon: const Icon(Icons.link, size: 16),
+                  label: const Text('Connect'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                  ),
+                ),
+            ],
+          ),
+          if (_healthConnectData != null && _healthConnectData!.hasData) ...[
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                if (_healthConnectData!.steps != null)
+                  Expanded(child: _buildHealthMetricTile(
+                    Icons.directions_walk,
+                    'Steps',
+                    '${_healthConnectData!.steps}',
+                    Colors.blue,
+                  )),
+                if (_healthConnectData!.heartRate != null)
+                  Expanded(child: _buildHealthMetricTile(
+                    Icons.favorite,
+                    'Heart Rate',
+                    '${_healthConnectData!.heartRate} bpm',
+                    Colors.red,
+                  )),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (_healthConnectData!.calories != null)
+                  Expanded(child: _buildHealthMetricTile(
+                    Icons.local_fire_department,
+                    'Calories',
+                    '${_healthConnectData!.calories} kcal',
+                    Colors.orange,
+                  )),
+                if (_healthConnectData!.sleepHours != null)
+                  Expanded(child: _buildHealthMetricTile(
+                    Icons.bedtime,
+                    'Sleep',
+                    '${_healthConnectData!.sleepHours!.toStringAsFixed(1)} hrs',
+                    Colors.purple,
+                  )),
+              ],
+            ),
+          ] else if (_healthConnectConnected) ...[
+            const SizedBox(height: 16),
+            Center(
+              child: Text(
+                'No health data available yet',
+                style: GoogleFonts.manrope(
+                  fontSize: 13,
+                  color: Colors.grey[500],
+                ),
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 16),
+            Center(
+              child: Text(
+                'Connect Health Connect to see your health metrics',
+                style: GoogleFonts.manrope(
+                  fontSize: 13,
+                  color: Colors.grey[500],
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHealthMetricTile(IconData icon, String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: GoogleFonts.manrope(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            label,
+            style: GoogleFonts.manrope(
+              fontSize: 11,
+              color: Colors.grey[600],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1967,37 +2116,37 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
         ? _todayCompletedCount / _todayExpectedCount 
         : 0.0;
     
-    // Get emoji and color based on progress - eco-themed
+    // Get emoji and color based on progress - achievement-themed
     String progressEmoji;
     String progressMessage;
     Color progressColor;
     IconData progressIcon;
     
     if (_todayCompletionPercent >= 80) {
-      progressEmoji = '🌳';
-      progressMessage = 'Eco champion! You\'re making Earth proud!';
+      progressEmoji = '🏆';
+      progressMessage = 'Champion! You\'re crushing your goals!';
       progressColor = const Color(0xFF2E7D32);
-      progressIcon = Icons.park;
+      progressIcon = Icons.emoji_events;
     } else if (_todayCompletionPercent >= 60) {
-      progressEmoji = '🌿';
-      progressMessage = 'Fantastic green progress!';
+      progressEmoji = '⭐';
+      progressMessage = 'Fantastic progress!';
       progressColor = const Color(0xFF43A047);
-      progressIcon = Icons.eco;
+      progressIcon = Icons.star;
     } else if (_todayCompletionPercent >= 40) {
-      progressEmoji = '🌱';
-      progressMessage = 'Growing your eco footprint!';
+      progressEmoji = '📈';
+      progressMessage = 'Building momentum!';
       progressColor = primaryColor;
-      progressIcon = Icons.grass;
+      progressIcon = Icons.trending_up;
     } else if (_todayCompletionPercent >= 20) {
-      progressEmoji = '🍃';
-      progressMessage = 'Every green action matters!';
+      progressEmoji = '💪';
+      progressMessage = 'Every action matters!';
       progressColor = const Color(0xFF66BB6A);
-      progressIcon = Icons.nature;
+      progressIcon = Icons.fitness_center;
     } else {
-      progressEmoji = '🌍';
-      progressMessage = 'Start your eco journey today!';
+      progressEmoji = '�';
+      progressMessage = 'Start your journey today!';
       progressColor = const Color(0xFF81C784);
-      progressIcon = Icons.public;
+      progressIcon = Icons.flag;
     }
     
     return Container(
@@ -2063,7 +2212,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                         Icon(progressIcon, size: 14, color: progressColor),
                         const SizedBox(width: 4),
                         Text(
-                          "TODAY'S ECO PROGRESS",
+                          "PROGRESS",
                           style: GoogleFonts.manrope(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
@@ -2129,7 +2278,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
           ),
           const SizedBox(height: 20),
           
-          // Progress bar with nature element
+          // Progress bar with achievement indicator
           Stack(
             children: [
               ClipRRect(
@@ -2145,7 +2294,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                 Positioned(
                   left: (MediaQuery.of(context).size.width - 80) * progressPercent.clamp(0.0, 1.0) - 8,
                   top: -2,
-                  child: Icon(Icons.eco, size: 16, color: Colors.white.withAlpha(220)),
+                  child: Icon(Icons.star, size: 16, color: Colors.white.withAlpha(220)),
                 ),
             ],
           ),
@@ -2177,7 +2326,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     );
   }
   
-  Widget _buildEcoImpactStat(IconData icon, String value, String label, Color color) {
+  Widget _buildAchievementStat(IconData icon, String value, String label, Color color) {
     return Column(
       children: [
         Icon(icon, size: 22, color: color),
@@ -2979,53 +3128,8 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     );
   }
 
-  /// Build a compact summary card for wearable metrics (steps, resting HR, sleep)
-  Widget _buildWearableSummaryCard(BuildContext context, Map<String, dynamic> data, String source) {
-    // Prefer aggregated summaries from Firestore when available for accuracy
-    Map<String, dynamic>? agg = source == 'fitbit' ? _fitbitSummary : _samsungSummary;
-    final parsed = source == 'fitbit' ? _parseFitbitMetrics(data) : _parseSamsungMetrics(data);
-    final metrics = agg ?? parsed;
-    // Compose steps display with simple trend indicator when available
-    String stepsDisplay;
-    if (metrics['steps'] != null) {
-      stepsDisplay = _formatNumber(metrics['steps'] as int?);
-      final tp = metrics['trendPercent'] as double?;
-      if (tp != null) {
-        final arrow = tp > 0 ? '↑' : (tp < 0 ? '↓' : '→');
-        stepsDisplay = '$stepsDisplay $arrow ${tp.abs().toStringAsFixed(0)}%';
-      }
-    } else {
-      stepsDisplay = 'N/A';
-    }
-    final label = _range == 'daily' ? 'Today' : _range == 'weekly' ? 'Last 7 days' : _range == 'monthly' ? 'This month' : 'This year';
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).brightness == Brightness.dark ? Colors.white.withOpacity(0.03) : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.withOpacity(0.08)),
-      ),
-      child: Row(
-        children: [
-          Expanded(child: _buildSmallMetric(Icons.directions_walk, 'Steps', stepsDisplay)),
-          const SizedBox(width: 8),
-          Expanded(child: _buildSmallMetric(Icons.favorite, 'Resting HR', metrics['hr'] != null ? '${metrics['hr']!.toStringAsFixed(0)} bpm' : 'N/A')),
-          const SizedBox(width: 8),
-          Expanded(child: _buildSmallMetric(Icons.bedtime, 'Sleep', metrics['sleep'] != null ? '${metrics['sleep']!.toStringAsFixed(1)} h' : 'N/A')),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(label, style: GoogleFonts.manrope(fontSize: 12, color: Colors.grey[600])),
-              const SizedBox(height: 6),
-              Text(source.toUpperCase(), style: GoogleFonts.manrope(fontSize: 12, fontWeight: FontWeight.w600)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+  // Legacy wearable methods kept for compatibility but no longer used
+  // Health Connect is now the primary source for health data
 
   Widget _buildSmallMetric(IconData icon, String title, String value) {
     return Row(
@@ -3183,125 +3287,8 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     }
   }
 
-  /// Load aggregated wearable metrics from Firestore 'daily_metrics' for the signed-in user
+  /// Legacy: Wearable aggregates no longer used - replaced by Health Connect
   Future<void> _loadWearableAggregates() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-      final now = DateTime.now();
-      DateTime start;
-      DateTime end = now;
-      if (_range == 'weekly') {
-        start = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
-      } else if (_range == 'monthly') {
-        start = DateTime(now.year, now.month, 1);
-      } else {
-        start = DateTime(now.year, 1, 1);
-      }
-
-      final startStr = start.toIso8601String().substring(0, 10);
-      final endStr = end.toIso8601String().substring(0, 10);
-
-    final snap = await FirebaseFirestore.instance
-          .collection('daily_metrics')
-          .where('uid', isEqualTo: user.uid)
-          .where('date', isGreaterThanOrEqualTo: startStr)
-          .where('date', isLessThanOrEqualTo: endStr)
-          .get();
-
-      int stepsFit = 0;
-      final hrFitVals = <double>[];
-      double sleepFitSum = 0;
-      int sleepFitCount = 0;
-
-      int stepsSam = 0;
-      final hrSamVals = <double>[];
-      double sleepSamSum = 0;
-      int sleepSamCount = 0;
-
-      for (final doc in snap.docs) {
-        final d = doc.data();
-        final fit = d['fitbit'] as Map<String, dynamic>?;
-        final sam = d['samsung'] as Map<String, dynamic>?;
-        if (fit != null) {
-          final p = _parseFitbitMetrics(fit);
-          if (p['steps'] is int) stepsFit += p['steps'] as int;
-          if (p['hr'] is double) hrFitVals.add(p['hr'] as double);
-          if (p['sleep'] is double) { sleepFitSum += p['sleep'] as double; sleepFitCount++; }
-        }
-        if (sam != null) {
-          final p = _parseSamsungMetrics(sam);
-          if (p['steps'] is int) stepsSam += p['steps'] as int;
-          if (p['hr'] is double) hrSamVals.add(p['hr'] as double);
-          if (p['sleep'] is double) { sleepSamSum += p['sleep'] as double; sleepSamCount++; }
-        }
-      }
-
-      final fitHrAvg = hrFitVals.isNotEmpty ? hrFitVals.reduce((a, b) => a + b) / hrFitVals.length : null;
-      final fitSleepAvg = sleepFitCount > 0 ? (sleepFitSum / sleepFitCount) : null;
-      final samHrAvg = hrSamVals.isNotEmpty ? hrSamVals.reduce((a, b) => a + b) / hrSamVals.length : null;
-      final samSleepAvg = sleepSamCount > 0 ? (sleepSamSum / sleepSamCount) : null;
-
-      // --- previous period comparison for simple trend indicator ---
-      DateTime prevStart;
-      DateTime prevEnd;
-      if (_range == 'weekly') {
-        prevStart = start.subtract(const Duration(days: 7));
-        prevEnd = start.subtract(const Duration(days: 1));
-      } else if (_range == 'monthly') {
-        prevStart = DateTime(start.year, start.month - 1, 1);
-        prevEnd = DateTime(start.year, start.month, 0);
-      } else {
-        prevStart = DateTime(start.year - 1, 1, 1);
-        prevEnd = DateTime(start.year - 1, 12, 31);
-      }
-      final prevStartStr = prevStart.toIso8601String().substring(0, 10);
-      final prevEndStr = prevEnd.toIso8601String().substring(0, 10);
-
-      final prevSnap = await FirebaseFirestore.instance
-          .collection('daily_metrics')
-          .where('uid', isEqualTo: user.uid)
-          .where('date', isGreaterThanOrEqualTo: prevStartStr)
-          .where('date', isLessThanOrEqualTo: prevEndStr)
-          .get();
-
-      int prevFitSteps = 0;
-      int prevSamSteps = 0;
-      for (final doc in prevSnap.docs) {
-        final d = doc.data();
-        final fit = d['fitbit'] as Map<String, dynamic>?;
-        final sam = d['samsung'] as Map<String, dynamic>?;
-        if (fit != null) {
-          final p = _parseFitbitMetrics(fit);
-          if (p['steps'] is int) prevFitSteps += p['steps'] as int;
-        }
-        if (sam != null) {
-          final p = _parseSamsungMetrics(sam);
-          if (p['steps'] is int) prevSamSteps += p['steps'] as int;
-        }
-      }
-
-      double? fitTrendPct;
-      if (prevFitSteps > 0) fitTrendPct = ((stepsFit - prevFitSteps) / prevFitSteps) * 100.0;
-      double? samTrendPct;
-      if (prevSamSteps > 0) samTrendPct = ((stepsSam - prevSamSteps) / prevSamSteps) * 100.0;
-
-      setState(() {
-        _fitbitSummary = {
-          'steps': stepsFit > 0 ? stepsFit : null,
-          'hr': fitHrAvg,
-          'sleep': fitSleepAvg,
-          'trendPercent': fitTrendPct,
-        };
-        _samsungSummary = {
-          'steps': stepsSam > 0 ? stepsSam : null,
-          'hr': samHrAvg,
-          'sleep': samSleepAvg,
-          'trendPercent': samTrendPct,
-        };
-      });
-    } catch (e) {
-      // ignore failures silently; keep current summaries
-    }
+    // No longer used - Health Connect provides health data
   }
 }

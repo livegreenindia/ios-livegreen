@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../wearable_admin_screen.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import '../health_connect_screen.dart';
 import '../premium/subscriptionpaymentpage.dart';
 import '../legal/privacy_policy_screen.dart';
 import '../legal/terms_of_service_screen.dart';
+import '../community/my_clubs_screen.dart';
 import '../../services/profile_service.dart';
 import '../../services/auth_service.dart';
 import '../../config/routes.dart';
@@ -35,12 +36,14 @@ class _ProfilePageState extends State<ProfilePage> {
   int _completedActivities = 0;
   int _wellnessScore = 0;
   bool _statsLoading = true;
+  String _appVersion = '1.0.2';
 
   @override
   void initState() {
     super.initState();
     _subscribeToProfile();
     _loadStats();
+    _loadAppVersion();
   }
 
   @override
@@ -65,6 +68,20 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) {
         setState(() => _statsLoading = false);
       }
+    }
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() {
+          _appVersion = packageInfo.version;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading app version: $e');
+      // Keep default version if loading fails
     }
   }
 
@@ -200,27 +217,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
                 // Logout Button
                 _buildLogoutButton(context),
-                const SizedBox(height: 16),
-
-                // Debug: quick access to wearable admin (only in debug builds)
-                if (kDebugMode) ...[
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const WearableAdminScreen(),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.watch, size: 18),
-                    label: const Text('Wearable Admin (debug)'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 44),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -285,7 +281,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 leading: const Icon(Icons.info_outline),
                 title: const Text('App Version'),
                 trailing: Text(
-                  '1.0.1',
+                  _appVersion,
                   style: GoogleFonts.manrope(color: Colors.grey),
                 ),
               ),
@@ -543,14 +539,33 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           _buildSettingsTile(
             context,
-            Icons.watch_outlined,
-            'Watch Integration',
-            'Connected',
+            Icons.favorite_outline,
+            'Health Connect',
+            'Sync health data',
             primaryColor,
+            onTap: () {
+              final user = FirebaseAuth.instance.currentUser;
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => HealthConnectScreen(uid: user?.uid ?? '')),
+              );
+            },
+          ),
+          Divider(
+            height: 1,
+            indent: 56,
+            color: isDark ? Colors.white10 : Colors.black12,
+          ),
+          _buildSettingsTile(
+            context,
+            Icons.group_outlined,
+            'My Clubs',
+            'Manage your clubs',
+            Colors.green,
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const WearableAdminScreen()),
+                MaterialPageRoute(builder: (_) => const MyClubsScreen()),
               );
             },
           ),
