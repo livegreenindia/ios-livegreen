@@ -3,6 +3,7 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  ambient_light
   audioplayers_windows
   cloud_firestore
   desktop_webview_window

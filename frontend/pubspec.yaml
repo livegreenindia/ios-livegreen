@@ -56,6 +56,7 @@ dependencies:
   
   # Health Connect integration (replaces Fitbit/Samsung)
   health: ^11.1.0
+  sensors_plus: ^6.0.0
   
   # Trek Explorer dependencies
   google_maps_flutter: ^2.5.3
@@ -77,6 +78,7 @@ dependencies:
   
   # Share functionality for activity completion
   share_plus: ^10.1.4
+  ambient_light: ^0.1.4
 
 dev_dependencies:
   flutter_test:

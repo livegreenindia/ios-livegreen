@@ -14,6 +14,7 @@ import '../../config/api.dart' as cfg;
 import '../../theme/app_theme.dart';
 import 'progress_refresh_notifier.dart';
 import 'package:provider/provider.dart';
+import '../../models/lux.dart';
 
 class ActivityPage extends StatefulWidget {
   const ActivityPage({super.key});
@@ -202,10 +203,10 @@ class _ActivityPageState extends State<ActivityPage> {
             RecentDataStore.recordActivityComplete(100, DateTime.now());
 
             if (!mounted) return;
-            
+
             // Show completion dialog with share option
             _showCompletionDialog(activity);
-            
+
             notifierBefore.triggerRefresh();
           } catch (e) {
             final errorStr = e.toString();
@@ -457,16 +458,16 @@ class _ActivityPageState extends State<ActivityPage> {
                                   children: [
                                     Icon(
                                       // Use clock icon for mindfulness/MBSR activities
-                                      _isMindfulnessActivity(activity) 
-                                          ? Icons.access_time 
+                                      _isMindfulnessActivity(activity)
+                                          ? Icons.access_time
                                           : Icons.info_outline,
                                       color: primaryColor,
                                       size: 14,
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
-                                      _isMindfulnessActivity(activity) 
-                                          ? 'Practice' 
+                                      _isMindfulnessActivity(activity)
+                                          ? 'Practice'
                                           : 'Details',
                                       style: GoogleFonts.manrope(
                                         fontSize: 11,
@@ -511,6 +512,12 @@ class _ActivityPageState extends State<ActivityPage> {
         title.toLowerCase().contains('breathing') ||
         title.toLowerCase().contains('meditation')) {
       _showMBSRBreathingDialog(activityId, title);
+      return;
+    }
+
+    // If activity relates to light measurement, open the Lux Meter sheet
+    if (_isLuxActivity(activity)) {
+      _showLuxMeterSheet(context);
       return;
     }
 
@@ -905,7 +912,11 @@ class _ActivityPageState extends State<ActivityPage> {
                         ),
                       ],
                     ),
-                    child: const Icon(Icons.local_activity, color: Colors.white, size: 28),
+                    child: const Icon(
+                      Icons.local_activity,
+                      color: Colors.white,
+                      size: 28,
+                    ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -934,7 +945,9 @@ class _ActivityPageState extends State<ActivityPage> {
                   IconButton(
                     icon: Icon(
                       Icons.refresh,
-                      color: _activitiesLoading ? Colors.grey : (isDark ? Colors.white70 : Colors.black54),
+                      color: _activitiesLoading
+                          ? Colors.grey
+                          : (isDark ? Colors.white70 : Colors.black54),
                       size: 22,
                     ),
                     tooltip: 'Refresh Activities',
@@ -1744,7 +1757,11 @@ class _ActivityPageState extends State<ActivityPage> {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.trending_up, size: 14, color: progressColor),
+                          Icon(
+                            Icons.trending_up,
+                            size: 14,
+                            color: progressColor,
+                          ),
                           const SizedBox(width: 4),
                           Text(
                             "TODAY'S PROGRESS",
@@ -1893,11 +1910,71 @@ class _ActivityPageState extends State<ActivityPage> {
         title.contains('meditation');
   }
 
+  /// Detect if the activity pertains to light intensity / lux measurement
+  bool _isLuxActivity(Map<String, dynamic> activity) {
+    final title = (activity['title'] ?? '').toString().toLowerCase();
+    final description = (activity['description'] ?? '')
+        .toString()
+        .toLowerCase();
+    const keywords = [
+      'lux',
+      'light intensity',
+      'light meter',
+      'illuminance',
+      'lighting',
+    ];
+    return keywords.any((k) => title.contains(k) || description.contains(k));
+  }
+
+  /// Show Lux Meter in a modal bottom sheet and dismiss when measurement stops
+  void _showLuxMeterSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return Container(
+          height: MediaQuery.of(ctx).size.height * 0.85,
+          decoration: BoxDecoration(
+            color: isDark ? Colors.grey[900] : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              // Handle bar
+              Container(
+                margin: const EdgeInsets.only(top: 12, bottom: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[400],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: LightMeterApp(
+                    onStop: () {
+                      // Close the sheet when user stops measurement
+                      Navigator.of(ctx).pop();
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   /// Show completion dialog with share option
   void _showCompletionDialog(Map<String, dynamic> activity) {
     final activityTitle = activity['title'] ?? 'Activity';
     final category = activity['category'] ?? '';
-    
+
     showDialog(
       context: context,
       builder: (BuildContext dialogContext) {
@@ -1953,9 +2030,7 @@ class _ActivityPageState extends State<ActivityPage> {
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: Text(
                 'Close',
-                style: GoogleFonts.manrope(
-                  color: Colors.grey[600],
-                ),
+                style: GoogleFonts.manrope(color: Colors.grey[600]),
               ),
             ),
             ElevatedButton.icon(
@@ -1974,7 +2049,10 @@ class _ActivityPageState extends State<ActivityPage> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
             ),
           ],
@@ -1985,7 +2063,8 @@ class _ActivityPageState extends State<ActivityPage> {
 
   /// Share activity completion to social media
   void _shareActivityCompletion(String activityTitle, String category) {
-    final String shareText = '''� I just completed "$activityTitle" on LiveGreen! 
+    final String shareText =
+        '''� I just completed "$activityTitle" on LiveGreen! 
 
 Taking small steps towards a healthier, happier lifestyle. 💚✨
 
@@ -1993,10 +2072,7 @@ Join me on LiveGreen and start your wellness journey today!
 
 #LiveGreen #Wellness #HealthyLiving #PersonalGrowth''';
 
-    Share.share(
-      shareText,
-      subject: 'I completed an activity on LiveGreen!',
-    );
+    Share.share(shareText, subject: 'I completed an activity on LiveGreen!');
   }
 
   // ============== MBSR BREATHING EXERCISE METHODS ==============
@@ -2597,7 +2673,7 @@ Join me on LiveGreen and start your wellness journey today!
     // Play start sound
     try {
       await _breathingAudioPlayer.play(
-        UrlSource('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3'),
+        AssetSource('sounds/bell-ringing-05.mp3'),
       );
     } catch (e) {
       // Audio not available, continue silently
@@ -2662,23 +2738,11 @@ Join me on LiveGreen and start your wellness journey today!
       // Play phase-specific audio cues
       try {
         if (currentPhase == 'Breathe In') {
-          _phaseAudioPlayer.play(
-            UrlSource(
-              'https://www.soundjay.com/misc/sounds/bell-ringing-01.mp3',
-            ),
-          );
+          _phaseAudioPlayer.play(AssetSource('sounds/inhale.mp3'));
         } else if (currentPhase == 'Breathe Out') {
-          _phaseAudioPlayer.play(
-            UrlSource(
-              'https://www.soundjay.com/misc/sounds/bell-ringing-02.mp3',
-            ),
-          );
+          _phaseAudioPlayer.play(AssetSource('sounds/exhale.mp3'));
         } else if (currentPhase == 'Hold') {
-          _phaseAudioPlayer.play(
-            UrlSource(
-              'https://www.soundjay.com/misc/sounds/bell-ringing-03.mp3',
-            ),
-          );
+          _phaseAudioPlayer.play(AssetSource('sounds/hold.mp3'));
         }
       } catch (e) {
         // Audio not available, continue silently
@@ -2802,7 +2866,7 @@ Join me on LiveGreen and start your wellness journey today!
           children: [
             const Icon(Icons.check_circle, color: Colors.white),
             const SizedBox(width: 12),
-            const Text('Mindfulness session completed! 🧘'),
+            const Text('Breathing session completed! 🧘'),
           ],
         ),
         backgroundColor: primaryColor,

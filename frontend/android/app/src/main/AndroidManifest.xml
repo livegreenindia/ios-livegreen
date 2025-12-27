@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <!-- Android 13+ runtime notifications permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" tools:targetApi="33" />
+    <uses-permission android:name="android.permission.BODY_SENSORS" />
+
     
     <!-- Location permissions for Trek Explorer -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />

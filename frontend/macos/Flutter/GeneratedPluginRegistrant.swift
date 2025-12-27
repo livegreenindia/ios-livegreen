@@ -5,6 +5,7 @@
 import FlutterMacOS
 import Foundation
 
+import ambient_light
 import audioplayers_darwin
 import cloud_firestore
 import desktop_webview_window
@@ -29,6 +30,7 @@ import url_launcher_macos
 import window_to_front
 
 func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
+  AmbientLightPlugin.register(with: registry.registrar(forPlugin: "AmbientLightPlugin"))
   AudioplayersDarwinPlugin.register(with: registry.registrar(forPlugin: "AudioplayersDarwinPlugin"))
   FLTFirebaseFirestorePlugin.register(with: registry.registrar(forPlugin: "FLTFirebaseFirestorePlugin"))
   DesktopWebviewWindowPlugin.register(with: registry.registrar(forPlugin: "DesktopWebviewWindowPlugin"))
