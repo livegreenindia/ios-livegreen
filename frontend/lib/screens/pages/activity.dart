@@ -15,6 +15,8 @@ import '../../theme/app_theme.dart';
 import 'progress_refresh_notifier.dart';
 import 'package:provider/provider.dart';
 import '../../models/lux.dart';
+import 'meditation.dart';
+import '../../models/deepWork.dart';
 
 class ActivityPage extends StatefulWidget {
   const ActivityPage({super.key});
@@ -442,36 +444,74 @@ class _ActivityPageState extends State<ActivityPage> {
                               (activity['description'] != null ||
                                   activity['tips'] != null ||
                                   activity['youtubeUrl'] != null))
-                            GestureDetector(
+                            InkWell(
+                              borderRadius: BorderRadius.circular(12),
                               onTap: () => _showActivityInfo(context, activity),
-                              child: Container(
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
+                                  horizontal: 12,
+                                  vertical: 8,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: primaryColor.withOpacity(0.08),
-                                  borderRadius: BorderRadius.circular(8),
+                                  // More noticeable styling for mindfulness "Practice" button
+                                  gradient: _isMindfulnessActivity(activity)
+                                      ? LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            primaryColor.withOpacity(0.18),
+                                            primaryColor.withOpacity(0.08),
+                                          ],
+                                        )
+                                      : null,
+                                  color: _isMindfulnessActivity(activity)
+                                      ? null
+                                      : primaryColor.withOpacity(0.08),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: primaryColor.withOpacity(0.25),
+                                  ),
+                                  boxShadow: _isMindfulnessActivity(activity)
+                                      ? [
+                                          BoxShadow(
+                                            color: primaryColor.withOpacity(
+                                              0.15,
+                                            ),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ]
+                                      : [],
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(
-                                      // Use clock icon for mindfulness/MBSR activities
-                                      _isMindfulnessActivity(activity)
-                                          ? Icons.access_time
-                                          : Icons.info_outline,
-                                      color: primaryColor,
-                                      size: 14,
+                                    Container(
+                                      width: 20,
+                                      height: 20,
+                                      decoration: BoxDecoration(
+                                        color: primaryColor.withOpacity(0.15),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(
+                                        _isMindfulnessActivity(activity) ||
+                                                _isDeepWorkActivity(activity)
+                                            ? Icons.play_arrow_rounded
+                                            : Icons.info_outline,
+                                        color: primaryColor,
+                                        size: 16,
+                                      ),
                                     ),
-                                    const SizedBox(width: 4),
+                                    const SizedBox(width: 8),
                                     Text(
-                                      _isMindfulnessActivity(activity)
+                                      _isMindfulnessActivity(activity) ||
+                                              _isDeepWorkActivity(activity)
                                           ? 'Practice'
                                           : 'Details',
                                       style: GoogleFonts.manrope(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
                                         color: primaryColor,
                                       ),
                                     ),
@@ -505,12 +545,30 @@ class _ActivityPageState extends State<ActivityPage> {
     final category = activity['category'] as String?;
     final activityId = activity['id']?.toString() ?? 'mbsr_activity';
 
+    // Check if this is a meditation activity - navigate to meditation screen
+    if (title.toLowerCase().contains('meditation') &&
+        !title.toLowerCase().contains('breathing')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const MeditationScreen()),
+      );
+      return;
+    }
+
+    // Check if this is a deep work/study activity - navigate to deep work screen
+    if (_isDeepWorkActivity(activity)) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const DeepWorkScreen()),
+      );
+      return;
+    }
+
     // Check if this is a mindfulness/MBSR activity - show breathing dialog instead
     if (category?.toLowerCase() == 'mindfulness' ||
         title.toLowerCase().contains('mbsr') ||
         title.toLowerCase().contains('mindfulness') ||
-        title.toLowerCase().contains('breathing') ||
-        title.toLowerCase().contains('meditation')) {
+        title.toLowerCase().contains('breathing')) {
       _showMBSRBreathingDialog(activityId, title);
       return;
     }
@@ -1908,6 +1966,17 @@ class _ActivityPageState extends State<ActivityPage> {
         title.contains('mindfulness') ||
         title.contains('breathing') ||
         title.contains('meditation');
+  }
+
+  /// Check if activity is a deep work/study activity
+  bool _isDeepWorkActivity(Map<String, dynamic> activity) {
+    final title = (activity['title'] ?? '').toString().toLowerCase();
+    final category = (activity['category'] ?? '').toString().toLowerCase();
+    return title.contains('deep work') ||
+        title.contains('deep study') ||
+        title.contains('focus session') ||
+        category == 'deep work' ||
+        category == 'productivity';
   }
 
   /// Detect if the activity pertains to light intensity / lux measurement
