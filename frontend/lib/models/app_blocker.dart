@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 
 class AppBlocker {
-  static const _channel = MethodChannel('com.example.app_name/blocker');
+  static const _channel = MethodChannel('livegreen/app_blocker');
 
   static Future<bool> checkAccessibilityPermission() async {
     try {

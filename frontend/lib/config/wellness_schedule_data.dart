@@ -76,7 +76,7 @@ class WellnessScheduleData {
             ],
           ),
           WellnessActivity(
-            title: 'Mindful based stress reduction practice',
+            title: 'Breathing Excersice',
             category: 'mindfulness',
             info:
                 'Meditation and mindfulness reduce cortisol levels, improve emotional regulation, and enhance mental clarity.',
@@ -427,7 +427,7 @@ class WellnessScheduleData {
             ],
           ),
           WellnessActivity(
-            title: 'Mindful based stress reduction practice',
+            title: 'Breathing Exercise',
             category: 'mindfulness',
             info:
                 'Meditation helps students manage academic stress, improve concentration, and enhance memory.',

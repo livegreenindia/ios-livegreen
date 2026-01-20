@@ -13,6 +13,7 @@ import 'progress_refresh_notifier.dart';
 import '../../services/digital_wellbeing_service.dart';
 import '../../services/health_connect_service.dart';
 import '../../services/progress_calculator_service.dart';
+import '../../models/screen_control.dart';
 import '../health_connect_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -27,7 +28,8 @@ class ProgressPage extends StatefulWidget {
   State<ProgressPage> createState() => _ProgressPageState();
 }
 
-class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+class _ProgressPageState extends State<ProgressPage>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   // Theme-aware color getters
   Color get primaryColor => AppColors.primary;
   Color get primaryLight => AppColors.primaryLight;
@@ -37,7 +39,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
   Color get successColor => AppColors.success;
   Color get warningColor => AppColors.warning;
   Color get errorColor => AppColors.error;
-  
+
   // Chart animation
   double _chartAnimationValue = 0.0;
 
@@ -47,27 +49,28 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
   List<Map<String, dynamic>> _series = [];
   // Removed _screenMinutes - no longer showing total screen time
   bool _usagePermission = false;
-  List<Map<String, dynamic>> _socialMediaApps = []; // Social media usage breakdown
+  List<Map<String, dynamic>> _socialMediaApps =
+      []; // Social media usage breakdown
   HealthData? _healthConnectData;
   bool _healthConnectConnected = false;
   final HealthConnectService _healthConnectService = HealthConnectService();
   StreamSubscription<HealthData>? _healthConnectStreamSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _dailyMetricsSub;
   StreamSubscription<User?>? _authStateSub;
-  
+
   // Activity-based progress tracking
   int _todayCompletedCount = 0;
   int _todayExpectedCount = 0;
   int _todayCompletionPercent = 0;
   StreamSubscription<Map<String, dynamic>>? _progressSub;
-  
+
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
   @override
   void initState() {
     super.initState();
-  WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addObserver(this);
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -106,7 +109,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
 
   /// Listen to real-time activity progress updates
   void _listenToActivityProgress() {
-    _progressSub = ProgressCalculatorService.progressStream().listen((progress) {
+    _progressSub = ProgressCalculatorService.progressStream().listen((
+      progress,
+    ) {
       if (mounted) {
         setState(() {
           _todayCompletedCount = progress['completedCount'] ?? 0;
@@ -123,7 +128,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       // Actually check if we have Health Connect permissions
       _healthConnectConnected = await _healthConnectService.checkPermissions();
       if (mounted) setState(() {});
-      
+
       // Listen to health data stream
       _healthConnectStreamSub = _healthConnectService.dataStream.listen((data) {
         if (!mounted) return;
@@ -132,7 +137,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
           _healthConnectConnected = true;
         });
       });
-      
+
       // Try to fetch initial data if authorized
       if (_healthConnectConnected) {
         final data = await _healthConnectService.fetchHealthData();
@@ -146,7 +151,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       debugPrint('Health Connect init error: $e');
     }
   }
-  
+
   /// Animate chart bars with staggered effect
   Future<void> _animateChart() async {
     setState(() => _chartAnimationValue = 0.0);
@@ -157,109 +162,120 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       }
     }
   }
-  
+
   /// Generate smart insights based on data
-  List<Map<String, dynamic>> _generateInsights(List<Map<String, dynamic>> data) {
+  List<Map<String, dynamic>> _generateInsights(
+    List<Map<String, dynamic>> data,
+  ) {
     if (data.isEmpty) return [];
-    
+
     final insights = <Map<String, dynamic>>[];
-    
+
     // Calculate averages and trends
     double avgCompletion = 0;
     double avgHappiness = 0;
     int aboveGoal = 0;
     double trend = 0;
-    
+
     for (int i = 0; i < data.length; i++) {
       final comp = ((data[i]['completionPercent'] ?? 0) as num).toDouble();
       final hap = ((data[i]['happiness'] ?? 0) as num).toDouble();
       avgCompletion += comp;
       avgHappiness += hap;
       if (comp >= 80) aboveGoal++;
-      
+
       // Calculate trend (compare first half vs second half)
       if (data.length >= 4) {
         final mid = data.length ~/ 2;
-        if (i < mid) trend -= comp / mid;
-        else trend += comp / (data.length - mid);
+        if (i < mid)
+          trend -= comp / mid;
+        else
+          trend += comp / (data.length - mid);
       }
     }
-    
+
     avgCompletion /= data.length;
     avgHappiness /= data.length;
-    
+
     // Insight 1: Performance summary
     if (avgCompletion >= 80) {
       insights.add({
         'icon': '🌟',
         'title': 'Outstanding Performance!',
-        'description': 'Your average completion rate is ${avgCompletion.toStringAsFixed(0)}%. Keep up the excellent habits!',
+        'description':
+            'Your average completion rate is ${avgCompletion.toStringAsFixed(0)}%. Keep up the excellent habits!',
         'color': AppColors.success,
       });
     } else if (avgCompletion >= 60) {
       insights.add({
         'icon': '💪',
         'title': 'Great Progress',
-        'description': 'You\'re averaging ${avgCompletion.toStringAsFixed(0)}%. Just ${(80 - avgCompletion).toStringAsFixed(0)}% away from your goal!',
+        'description':
+            'You\'re averaging ${avgCompletion.toStringAsFixed(0)}%. Just ${(80 - avgCompletion).toStringAsFixed(0)}% away from your goal!',
         'color': AppColors.info,
       });
     } else {
       insights.add({
         'icon': '🌱',
         'title': 'Room to Grow',
-        'description': 'Your average is ${avgCompletion.toStringAsFixed(0)}%. Small daily changes lead to big impact!',
+        'description':
+            'Your average is ${avgCompletion.toStringAsFixed(0)}%. Small daily changes lead to big impact!',
         'color': AppColors.warning,
       });
     }
-    
+
     // Insight 2: Trend analysis
     if (trend > 10) {
       insights.add({
         'icon': '📈',
         'title': 'Trending Up!',
-        'description': 'Your scores are improving! Recent performance is stronger than earlier.',
+        'description':
+            'Your scores are improving! Recent performance is stronger than earlier.',
         'color': AppColors.primaryLight,
       });
     } else if (trend < -10) {
       insights.add({
         'icon': '📉',
         'title': 'Attention Needed',
-        'description': 'Recent scores are lower. Try setting reminders to stay on track.',
+        'description':
+            'Recent scores are lower. Try setting reminders to stay on track.',
         'color': AppColors.error,
       });
     }
-    
+
     // Insight 3: Goal achievement
     if (aboveGoal > 0) {
       final percentage = ((aboveGoal / data.length) * 100).toStringAsFixed(0);
       insights.add({
         'icon': '🎯',
         'title': 'Goal Achievement',
-        'description': 'You hit your 80% goal on $aboveGoal ${aboveGoal == 1 ? 'day' : 'days'} ($percentage% of the time).',
+        'description':
+            'You hit your 80% goal on $aboveGoal ${aboveGoal == 1 ? 'day' : 'days'} ($percentage% of the time).',
         'color': AppColors.secondary,
       });
     }
-    
+
     // Insight 4: Wellness correlation
     if (avgHappiness >= 7) {
       insights.add({
         'icon': '💚',
         'title': 'Wellness Boost',
-        'description': 'Your activities correlate with ${avgHappiness.toStringAsFixed(1)}/10 happiness. Keep it up!',
+        'description':
+            'Your activities correlate with ${avgHappiness.toStringAsFixed(1)}/10 happiness. Keep it up!',
         'color': AppColors.secondaryLight,
       });
     }
-    
+
     return insights;
   }
-  
+
   /// Build smart insights widget
   Widget _buildSmartInsights(List<Map<String, dynamic>> data) {
     final insights = _generateInsights(data);
     if (insights.isEmpty) return const SizedBox.shrink();
-    
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return AnimatedOpacity(
       opacity: _chartAnimationValue,
       duration: const Duration(milliseconds: 300),
@@ -299,13 +315,15 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
               ],
             ),
             const SizedBox(height: 12),
-            ...insights.take(3).map((insight) => _buildInsightTile(insight, isDark)),
+            ...insights
+                .take(3)
+                .map((insight) => _buildInsightTile(insight, isDark)),
           ],
         ),
       ),
     );
   }
-  
+
   Widget _buildInsightTile(Map<String, dynamic> insight, bool isDark) {
     final color = insight['color'] as Color;
     return Container(
@@ -314,10 +332,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       decoration: BoxDecoration(
         color: color.withOpacity(isDark ? 0.15 : 0.08),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: color.withOpacity(0.3),
-          width: 1,
-        ),
+        border: Border.all(color: color.withOpacity(0.3), width: 1),
       ),
       child: Row(
         children: [
@@ -385,7 +400,6 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     }
   }
 
-
   Future<void> _initUsage() async {
     try {
       final granted = await DigitalWellbeingService.isPermissionGranted();
@@ -399,45 +413,62 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
   Future<void> _fetchUsage() async {
     try {
       if (kDebugMode) {
-        debugPrint('[DigitalWellbeing] Fetching social media usage for range: $_range');
+        debugPrint(
+          '[DigitalWellbeing] Fetching social media usage for range: $_range',
+        );
       }
-      
+
       // Fetch social media usage breakdown
       final socialMap = await DigitalWellbeingService.getSocialMediaUsage(
-        _range == 'daily' ? 'daily' : 
-        _range == 'weekly' ? 'weekly' : 
-        _range == 'monthly' ? 'monthly' : 'yearly'
+        _range == 'daily'
+            ? 'daily'
+            : _range == 'weekly'
+            ? 'weekly'
+            : _range == 'monthly'
+            ? 'monthly'
+            : 'yearly',
       );
-      
+
       if (kDebugMode) {
-        debugPrint('[DigitalWellbeing] Received data: ${socialMap != null ? "YES" : "NULL"}');
+        debugPrint(
+          '[DigitalWellbeing] Received data: ${socialMap != null ? "YES" : "NULL"}',
+        );
         if (socialMap != null) {
-          debugPrint('[DigitalWellbeing] Apps in response: ${socialMap['apps']}');
+          debugPrint(
+            '[DigitalWellbeing] Apps in response: ${socialMap['apps']}',
+          );
         }
       }
-      
+
       if (socialMap != null && mounted) {
         if (socialMap['apps'] != null && socialMap['apps'] is List) {
           // Properly convert the nested maps from Object? to String, dynamic
           final rawApps = socialMap['apps'] as List;
-          final apps = rawApps.map((item) {
-            if (item is Map) {
-              return Map<String, dynamic>.from(item);
-            }
-            return <String, dynamic>{};
-          }).where((app) => app.isNotEmpty).toList();
-          
+          final apps = rawApps
+              .map((item) {
+                if (item is Map) {
+                  return Map<String, dynamic>.from(item);
+                }
+                return <String, dynamic>{};
+              })
+              .where((app) => app.isNotEmpty)
+              .toList();
+
           if (kDebugMode) {
-            debugPrint('[DigitalWellbeing] Social media apps received: ${apps.length}');
+            debugPrint(
+              '[DigitalWellbeing] Social media apps received: ${apps.length}',
+            );
             for (var app in apps) {
-              debugPrint('[DigitalWellbeing] App: ${app['appName']}, Minutes: ${app['minutes']}');
+              debugPrint(
+                '[DigitalWellbeing] App: ${app['appName']}, Minutes: ${app['minutes']}',
+              );
             }
           }
-          
+
           setState(() {
             _socialMediaApps = apps;
           });
-          
+
           // Save daily social media usage to Firestore for notification checking
           if (_range == 'daily' && apps.isNotEmpty) {
             _saveSocialMediaMetrics(apps);
@@ -452,7 +483,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
         }
       } else {
         if (kDebugMode) {
-          debugPrint('[DigitalWellbeing] socialMap is null or widget unmounted');
+          debugPrint(
+            '[DigitalWellbeing] socialMap is null or widget unmounted',
+          );
         }
         if (mounted) {
           setState(() {
@@ -471,29 +504,30 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       }
     }
   }
-  
+
   /// Save social media usage to Firestore for notification alerts
   Future<void> _saveSocialMediaMetrics(List<Map<String, dynamic>> apps) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      
+
       final today = DateTime.now().toIso8601String().substring(0, 10);
       int youtubeMinutes = 0;
       int instagramMinutes = 0;
-      
+
       int totalSocialMinutes = 0;
       for (var app in apps) {
         final name = (app['appName'] ?? '').toString().toLowerCase();
         final minutes = (app['minutes'] as num?)?.toInt() ?? 0;
-        totalSocialMinutes += minutes; // apps list already filtered to social media
+        totalSocialMinutes +=
+            minutes; // apps list already filtered to social media
         if (name.contains('youtube')) {
           youtubeMinutes += minutes;
         } else if (name.contains('instagram')) {
           instagramMinutes += minutes;
         }
       }
-      
+
       // Save to daily_metrics collection
       await FirebaseFirestore.instance
           .collection('users')
@@ -501,13 +535,12 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
           .collection('daily_metrics')
           .doc(today)
           .set({
-        'date': today,
-        'socialMediaMinutes': totalSocialMinutes,
-        'youtubeMinutes': youtubeMinutes,
-        'instagramMinutes': instagramMinutes,
-        'lastUpdated': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      
+            'date': today,
+            'socialMediaMinutes': totalSocialMinutes,
+            'youtubeMinutes': youtubeMinutes,
+            'instagramMinutes': instagramMinutes,
+            'lastUpdated': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
     } catch (e) {
       // Silently fail - metrics are optional
       if (kDebugMode) {
@@ -552,23 +585,34 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
           .orderBy('last_updated', descending: true)
           .limit(1)
           .snapshots()
-          .listen((snap) {
-        // Data from this listener is no longer used - Health Connect provides health data
-      }, onError: (e) {
-        // Surface permission or other Firestore errors to UI (and optionally Notify user)
-        if (!mounted) return;
-        try {
-          final msg = e is FirebaseException ? '${e.code}: ${e.message}' : e.toString();
-          setState(() { _error = 'Firestore error: $msg'; });
-          // Show a non-intrusive snackbar for visibility during development
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Firestore error: $msg')));
-        } catch (_) {}
-      });
+          .listen(
+            (snap) {
+              // Data from this listener is no longer used - Health Connect provides health data
+            },
+            onError: (e) {
+              // Surface permission or other Firestore errors to UI (and optionally Notify user)
+              if (!mounted) return;
+              try {
+                final msg = e is FirebaseException
+                    ? '${e.code}: ${e.message}'
+                    : e.toString();
+                setState(() {
+                  _error = 'Firestore error: $msg';
+                });
+                // Show a non-intrusive snackbar for visibility during development
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Firestore error: $msg')),
+                );
+              } catch (_) {}
+            },
+          );
     } catch (e) {
       // guard: in case attaching the listener throws synchronously
       if (!mounted) return;
       try {
-        setState(() { _error = e.toString(); });
+        setState(() {
+          _error = e.toString();
+        });
       } catch (_) {}
     }
   }
@@ -592,7 +636,12 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
 
     final api = ApiService(baseUrl: cfg.apiBaseUrl);
     try {
-      final rangeMap = {'daily': 'day', 'weekly': 'week', 'monthly': 'month', 'yearly': 'year'};
+      final rangeMap = {
+        'daily': 'day',
+        'weekly': 'week',
+        'monthly': 'month',
+        'yearly': 'year',
+      };
       final response = await api.getProgressSeries(rangeMap[_range] ?? 'day');
 
       setState(() {
@@ -615,7 +664,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
   }
 
   double _avgCompletion() {
-    final vals = _series.map((e) => (e['completionPercent'] ?? 0) as num).toList();
+    final vals = _series
+        .map((e) => (e['completionPercent'] ?? 0) as num)
+        .toList();
     if (vals.isEmpty) return 0;
     return vals.reduce((a, b) => a + b) / vals.length;
   }
@@ -626,7 +677,8 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     final last = _series.last;
     final hapChange =
         ((last['happiness'] ?? 0) as num) - ((first['happiness'] ?? 0) as num);
-    final compChange = ((last['completionPercent'] ?? 0) as num) -
+    final compChange =
+        ((last['completionPercent'] ?? 0) as num) -
         ((first['completionPercent'] ?? 0) as num);
     return "${hapChange >= 0 ? '+' : ''}${hapChange.toStringAsFixed(1)} happiness, "
         "${compChange >= 0 ? '+' : ''}${compChange.toStringAsFixed(0)}% completion";
@@ -636,17 +688,21 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     if (_series.length < 2) return true;
     final first = _series.first;
     final last = _series.last;
-    final hapChange = ((last['happiness'] ?? 0) as num) - ((first['happiness'] ?? 0) as num);
+    final hapChange =
+        ((last['happiness'] ?? 0) as num) - ((first['happiness'] ?? 0) as num);
     return hapChange >= 0;
   }
 
-  List<Map<String, dynamic>> _aggregateForRange(List<Map<String, dynamic>> raw, String range) {
+  List<Map<String, dynamic>> _aggregateForRange(
+    List<Map<String, dynamic>> raw,
+    String range,
+  ) {
     // For daily view, just return today's data or empty
     if (range == 'daily') {
       final today = DateTime.now().toIso8601String().substring(0, 10);
       return raw.where((e) => e['date']?.toString() == today).toList();
     }
-    
+
     if (range == 'weekly') return raw;
 
     final byDate = <String, Map<String, dynamic>>{};
@@ -663,16 +719,18 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
         if (d != null) dateMap[d] = e;
       }
 
-  final now = DateTime.now();
-  DateTime startDate = DateTime(now.year, now.month, 1);
-  DateTime endDate = DateTime(now.year, now.month + 1, 0);
+      final now = DateTime.now();
+      DateTime startDate = DateTime(now.year, now.month, 1);
+      DateTime endDate = DateTime(now.year, now.month + 1, 0);
 
-      startDate = startDate.subtract(Duration(days: (startDate.weekday + 6) % 7));
+      startDate = startDate.subtract(
+        Duration(days: (startDate.weekday + 6) % 7),
+      );
       endDate = endDate.add(Duration(days: 7 - endDate.weekday));
 
       final buckets = <Map<String, dynamic>>[];
       DateTime cur = startDate;
-  // weekIndex no longer required; labels use date ranges
+      // weekIndex no longer required; labels use date ranges
       while (cur.isBefore(endDate) || cur.isAtSameMomentAs(endDate)) {
         final weekStart = cur;
         final weekEnd = cur.add(const Duration(days: 6));
@@ -681,7 +739,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
           final d = weekStart.add(Duration(days: i));
           // only include days that belong to the target month (avoid next/prev-month spillover)
           if (d.month != now.month) continue;
-          final key = d.toIso8601String().substring(0,10);
+          final key = d.toIso8601String().substring(0, 10);
           if (dateMap.containsKey(key)) {
             final entry = Map<String, dynamic>.from(dateMap[key]!);
             entry['date'] = key;
@@ -692,20 +750,49 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
         double avgComp = 0.0;
         int count = 0;
         if (days.isNotEmpty) {
-          final totalHap = days.map((x) => ((x['happiness'] ?? 0) as num).toDouble()).fold(0.0, (double a, double b) => a + b);
-          final totalComp = days.map((x) => ((x['completionPercent'] ?? 0) as num).toDouble()).fold(0.0, (double a, double b) => a + b);
+          final totalHap = days
+              .map((x) => ((x['happiness'] ?? 0) as num).toDouble())
+              .fold(0.0, (double a, double b) => a + b);
+          final totalComp = days
+              .map((x) => ((x['completionPercent'] ?? 0) as num).toDouble())
+              .fold(0.0, (double a, double b) => a + b);
           avgHap = totalHap / days.length;
           avgComp = totalComp / days.length;
-          count = days.map((x) => (x['count'] ?? 0) as int).fold(0, (a, b) => a + b);
+          count = days
+              .map((x) => (x['count'] ?? 0) as int)
+              .fold(0, (a, b) => a + b);
         }
-  // Build a friendly label clipped to the current month, e.g. "1–7 Oct"
-  final monthStart = DateTime(now.year, now.month, 1);
-  final monthEnd = DateTime(now.year, now.month + 1, 0);
-  final displayStart = weekStart.isBefore(monthStart) ? monthStart : weekStart;
-  final displayEnd = weekEnd.isAfter(monthEnd) ? monthEnd : weekEnd;
-  final monthLabel = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][now.month - 1];
-  final label = '${displayStart.day}–${displayEnd.day} $monthLabel';
-  buckets.add({'label': label, 'happiness': avgHap, 'completionPercent': avgComp, 'count': count, 'items': days, 'weekStart': weekStart.toIso8601String().substring(0,10), 'weekEnd': weekEnd.toIso8601String().substring(0,10)});
+        // Build a friendly label clipped to the current month, e.g. "1–7 Oct"
+        final monthStart = DateTime(now.year, now.month, 1);
+        final monthEnd = DateTime(now.year, now.month + 1, 0);
+        final displayStart = weekStart.isBefore(monthStart)
+            ? monthStart
+            : weekStart;
+        final displayEnd = weekEnd.isAfter(monthEnd) ? monthEnd : weekEnd;
+        final monthLabel = [
+          'Jan',
+          'Feb',
+          'Mar',
+          'Apr',
+          'May',
+          'Jun',
+          'Jul',
+          'Aug',
+          'Sep',
+          'Oct',
+          'Nov',
+          'Dec',
+        ][now.month - 1];
+        final label = '${displayStart.day}–${displayEnd.day} $monthLabel';
+        buckets.add({
+          'label': label,
+          'happiness': avgHap,
+          'completionPercent': avgComp,
+          'count': count,
+          'items': days,
+          'weekStart': weekStart.toIso8601String().substring(0, 10),
+          'weekEnd': weekEnd.toIso8601String().substring(0, 10),
+        });
         cur = cur.add(const Duration(days: 7));
       }
       return buckets;
@@ -723,22 +810,56 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
           months[idx].add(e);
         } catch (_) {}
       }
-      final labels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      final labels = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
       final res = <Map<String, dynamic>>[];
       // Only include months up to the current month to avoid showing future months (e.g., Nov when it's Oct)
       final lastMonthIndex = now.month - 1;
       for (int m = 0; m <= lastMonthIndex; m++) {
         final slice = months[m];
         if (slice.isEmpty) {
-          res.add({'label': labels[m], 'happiness': 0, 'completionPercent': 0, 'count': 0, 'items': []});
+          res.add({
+            'label': labels[m],
+            'happiness': 0,
+            'completionPercent': 0,
+            'count': 0,
+            'items': [],
+          });
           continue;
         }
-        final totalHap = slice.map((x) => ((x['happiness'] ?? 0) as num).toDouble()).fold(0.0, (double a, double b) => a + b);
-        final totalComp = slice.map((x) => ((x['completionPercent'] ?? 0) as num).toDouble()).fold(0.0, (double a, double b) => a + b);
+        final totalHap = slice
+            .map((x) => ((x['happiness'] ?? 0) as num).toDouble())
+            .fold(0.0, (double a, double b) => a + b);
+        final totalComp = slice
+            .map((x) => ((x['completionPercent'] ?? 0) as num).toDouble())
+            .fold(0.0, (double a, double b) => a + b);
         final avgHap = totalHap / slice.length;
         final avgComp = totalComp / slice.length;
-        final count = slice.map((x) => (x['count'] ?? 0) as int).fold(0, (a, b) => a + b);
-        res.add({'label': labels[m], 'happiness': avgHap, 'completionPercent': avgComp, 'count': count, 'items': slice.map((e) { final d = e['date']?.toString() ?? ''; return {...e, 'date': d}; }).toList()});
+        final count = slice
+            .map((x) => (x['count'] ?? 0) as int)
+            .fold(0, (a, b) => a + b);
+        res.add({
+          'label': labels[m],
+          'happiness': avgHap,
+          'completionPercent': avgComp,
+          'count': count,
+          'items': slice.map((e) {
+            final d = e['date']?.toString() ?? '';
+            return {...e, 'date': d};
+          }).toList(),
+        });
       }
       return res;
     }
@@ -749,10 +870,10 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
   Widget _buildCharts() {
     if (_series.isEmpty) return _placeholderChart("No data yet");
     final display = _aggregateForRange(_series, _range);
-    
+
     // Guard against empty display data after aggregation
     if (display.isEmpty) return _placeholderChart("No data for selected range");
-    
+
     // For daily view with single data point, show a simplified circular progress instead
     if (_range == 'daily' && display.length == 1) {
       return _buildDailyProgressView(display.first);
@@ -765,14 +886,17 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       final e = display[i];
       final hap = ((e['happiness'] ?? 0) as num).toDouble();
       final comp = ((e['completionPercent'] ?? 0) as num).toDouble();
-      
+
       // Staggered animation - each bar animates slightly after previous
       final staggerDelay = i / display.length;
-      final adjustedAnimation = (_chartAnimationValue - staggerDelay * 0.3).clamp(0.0, 1.0) / 0.7;
+      final adjustedAnimation =
+          (_chartAnimationValue - staggerDelay * 0.3).clamp(0.0, 1.0) / 0.7;
       final animatedComp = comp * adjustedAnimation.clamp(0.0, 1.0);
 
-      happinessSpots.add(FlSpot(i.toDouble(), (hap * 10.0) * _chartAnimationValue));
-      
+      happinessSpots.add(
+        FlSpot(i.toDouble(), (hap * 10.0) * _chartAnimationValue),
+      );
+
       // Dynamic color based on completion percentage with brand colors
       Color barColor = primaryColor;
       Color barColorLight = primaryLight.withOpacity(0.6);
@@ -780,7 +904,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
         barColor = successColor; // Green for excellent
         barColorLight = successColor.withOpacity(0.6);
       } else if (comp >= 50) {
-        barColor = primaryColor; // Primary green for good  
+        barColor = primaryColor; // Primary green for good
         barColorLight = primaryLight.withOpacity(0.6);
       } else if (comp >= 25) {
         barColor = warningColor; // Orange for moderate
@@ -789,14 +913,18 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
         barColor = errorColor; // Red for low
         barColorLight = errorColor.withOpacity(0.6);
       }
-      
+
       completionBars.add(
         BarChartGroupData(
           x: i,
           barRods: [
             BarChartRodData(
               toY: animatedComp,
-              width: _range == 'yearly' ? 18 : _range == 'monthly' ? 22 : 28,
+              width: _range == 'yearly'
+                  ? 18
+                  : _range == 'monthly'
+                  ? 22
+                  : 28,
               color: barColor,
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(6),
@@ -827,18 +955,22 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     }
     avgCompletion /= display.length;
     final showAchievement = avgCompletion >= 80 && _chartAnimationValue >= 1.0;
-    
+
     // Determine label interval based on data count to avoid overlap
     final labelInterval = display.length > 12 ? 2 : 1;
-    
+
     // Calculate dynamic bar width based on data count
-    final barWidthBase = display.length <= 7 ? 28.0 : display.length <= 12 ? 22.0 : 16.0;
+    final barWidthBase = display.length <= 7
+        ? 28.0
+        : display.length <= 12
+        ? 22.0
+        : 16.0;
 
     final chartWidget = LayoutBuilder(
       builder: (context, constraints) {
         // Responsive height based on screen width
         final chartHeight = constraints.maxWidth < 400 ? 260.0 : 320.0;
-        
+
         return SizedBox(
           height: chartHeight,
           child: Stack(
@@ -873,24 +1005,33 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                     touchTooltipData: BarTouchTooltipData(
                       tooltipBorder: BorderSide.none,
                       tooltipRoundedRadius: 16,
-                      tooltipPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      tooltipPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       tooltipMargin: 10,
                       fitInsideHorizontally: true,
                       fitInsideVertically: true,
                       getTooltipColor: (group) => AppColors.surfaceDark,
                       getTooltipItem: (group, groupIndex, rod, rodIndex) {
                         final item = display[group.x.toInt()];
-                        final pct = (item['completionPercent'] ?? 0).toStringAsFixed(0);
-                        
+                        final pct = (item['completionPercent'] ?? 0)
+                            .toStringAsFixed(0);
+
                         // Achievement-themed emoji based on completion
                         String emoji = '🎯';
                         final pctNum = double.tryParse(pct) ?? 0;
-                        if (pctNum >= 80) emoji = '🏆';
-                        else if (pctNum >= 60) emoji = '⭐';
-                        else if (pctNum >= 40) emoji = '🎯';
-                        else if (pctNum >= 20) emoji = '📈';
-                        else emoji = '💪';
-                        
+                        if (pctNum >= 80)
+                          emoji = '🏆';
+                        else if (pctNum >= 60)
+                          emoji = '⭐';
+                        else if (pctNum >= 40)
+                          emoji = '🎯';
+                        else if (pctNum >= 20)
+                          emoji = '📈';
+                        else
+                          emoji = '💪';
+
                         return BarTooltipItem(
                           '$emoji  Completion: $pct%',
                           GoogleFonts.manrope(
@@ -913,13 +1054,14 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                         interval: labelInterval.toDouble(),
                         getTitlesWidget: (value, meta) {
                           final idx = value.toInt();
-                          if (idx < 0 || idx >= display.length) return const SizedBox();
+                          if (idx < 0 || idx >= display.length)
+                            return const SizedBox();
                           // Skip labels based on interval to prevent overlap
                           if (idx % labelInterval != 0) return const SizedBox();
 
                           final item = display[idx];
                           String label = '';
-                          
+
                           if (item.containsKey('label')) {
                             if (_range == 'monthly') {
                               label = 'W${idx + 1}';
@@ -933,7 +1075,15 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                             if (_range == 'weekly') {
                               try {
                                 final dt = DateTime.parse(d);
-                                label = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][dt.weekday - 1];
+                                label = [
+                                  'Mon',
+                                  'Tue',
+                                  'Wed',
+                                  'Thu',
+                                  'Fri',
+                                  'Sat',
+                                  'Sun',
+                                ][dt.weekday - 1];
                               } catch (_) {
                                 label = d.substring(5);
                               }
@@ -951,7 +1101,20 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                             } else {
                               try {
                                 final dt = DateTime.parse(d);
-                                label = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.month - 1];
+                                label = [
+                                  'Jan',
+                                  'Feb',
+                                  'Mar',
+                                  'Apr',
+                                  'May',
+                                  'Jun',
+                                  'Jul',
+                                  'Aug',
+                                  'Sep',
+                                  'Oct',
+                                  'Nov',
+                                  'Dec',
+                                ][dt.month - 1];
                               } catch (_) {
                                 label = d.substring(5, 7);
                               }
@@ -975,289 +1138,309 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                         reservedSize: 32,
                       ),
                     ),
-                leftTitles: AxisTitles(
-                  axisNameWidget: Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.trending_up, size: 12, color: primaryColor),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Completion %',
-                          style: GoogleFonts.manrope(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: primaryColor,
-                            letterSpacing: -0.3,
-                          ),
+                    leftTitles: AxisTitles(
+                      axisNameWidget: Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.trending_up,
+                              size: 12,
+                              color: primaryColor,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Completion %',
+                              style: GoogleFonts.manrope(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: primaryColor,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  ),
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    interval: 25,
-                    getTitlesWidget: (value, meta) {
-                      final v = value.toInt();
-                      final ticks = [0, 25, 50, 75, 100];
-                      if (!ticks.contains(v)) return const SizedBox.shrink();
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 6.0),
-                        child: Text(
-                          '$v',
-                          style: GoogleFonts.manrope(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondaryLight,
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                      );
-                    },
-                    reservedSize: 32,
-                  ),
-                ),
-                rightTitles: AxisTitles(
-                  axisNameWidget: Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.favorite, size: 12, color: secondaryColor),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Wellness',
-                          style: GoogleFonts.manrope(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: secondaryColor,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    interval: 20,
-                    getTitlesWidget: (value, meta) {
-                      final v = value.toInt();
-                      if (v % 20 != 0) return const SizedBox.shrink();
-                      final hap = (v / 10).toInt();
-                      return Padding(
-                        padding: const EdgeInsets.only(left: 6.0),
-                        child: Text(
-                          '$hap',
-                          style: GoogleFonts.manrope(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w500,
-                            color: secondaryColor,
-                          ),
-                        ),
-                      );
-                    },
-                    reservedSize: 24,
-                  ),
-                ),
-                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              ),
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: false,
-                horizontalInterval: 25,
-                getDrawingHorizontalLine: (value) {
-                  // Goal line at 80%
-                  if (value == 80) {
-                    return FlLine(
-                      color: successColor,
-                      strokeWidth: 2,
-                      dashArray: [8, 4],
-                    );
-                  }
-                  return FlLine(
-                    color: AppColors.textSecondaryLight.withOpacity(0.1),
-                    strokeWidth: 1,
-                    dashArray: [6, 4],
-                  );
-                },
-              ),
-              extraLinesData: ExtraLinesData(
-                horizontalLines: [
-                  HorizontalLine(
-                    y: 80,
-                    color: successColor.withOpacity(0.7),
-                    strokeWidth: 2,
-                    dashArray: [8, 4],
-                    label: HorizontalLineLabel(
-                      show: true,
-                      alignment: Alignment.topRight,
-                      padding: const EdgeInsets.only(right: 5, bottom: 5),
-                      style: GoogleFonts.manrope(
-                        color: successColor,
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
                       ),
-                      labelResolver: (line) => '🎯 Goal',
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        interval: 25,
+                        getTitlesWidget: (value, meta) {
+                          final v = value.toInt();
+                          final ticks = [0, 25, 50, 75, 100];
+                          if (!ticks.contains(v))
+                            return const SizedBox.shrink();
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 6.0),
+                            child: Text(
+                              '$v',
+                              style: GoogleFonts.manrope(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textSecondaryLight,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                          );
+                        },
+                        reservedSize: 32,
+                      ),
+                    ),
+                    rightTitles: AxisTitles(
+                      axisNameWidget: Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.favorite,
+                              size: 12,
+                              color: secondaryColor,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Wellness',
+                              style: GoogleFonts.manrope(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: secondaryColor,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        interval: 20,
+                        getTitlesWidget: (value, meta) {
+                          final v = value.toInt();
+                          if (v % 20 != 0) return const SizedBox.shrink();
+                          final hap = (v / 10).toInt();
+                          return Padding(
+                            padding: const EdgeInsets.only(left: 6.0),
+                            child: Text(
+                              '$hap',
+                              style: GoogleFonts.manrope(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                                color: secondaryColor,
+                              ),
+                            ),
+                          );
+                        },
+                        reservedSize: 24,
+                      ),
+                    ),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
                     ),
                   ),
-                ],
-              ),
-              borderData: FlBorderData(show: false),
-              alignment: BarChartAlignment.spaceAround,
-            ),
-          ),
-          // Line chart overlay for happiness/wellness trend
-          LineChart(
-            LineChartData(
-              lineBarsData: [
-                LineChartBarData(
-                  spots: happinessSpots,
-                  isCurved: true,
-                  curveSmoothness: 0.3,
-                  preventCurveOverShooting: true,
-                  color: secondaryColor,
-                  barWidth: 3,
-                  shadow: Shadow(
-                    color: secondaryColor.withOpacity(0.4),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                  belowBarData: BarAreaData(
+                  gridData: FlGridData(
                     show: true,
-                    gradient: LinearGradient(
-                      colors: [
-                        secondaryColor.withOpacity(0.25),
-                        secondaryColor.withOpacity(0.1),
-                        secondaryColor.withOpacity(0.02),
-                        secondaryColor.withOpacity(0.0),
-                      ],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      stops: const [0.0, 0.35, 0.7, 1.0],
-                    ),
-                  ),
-                  dotData: FlDotData(
-                    show: true,
-                    getDotPainter: (spot, percent, barData, index) {
-                      final happiness = spot.y / 10;
-                      Color dotBorder = secondaryColor;
-                      if (happiness >= 8) {
-                        dotBorder = successColor;
-                      } else if (happiness >= 6) {
-                        dotBorder = AppColors.info;
-                      } else if (happiness < 4) {
-                        dotBorder = errorColor;
+                    drawVerticalLine: false,
+                    horizontalInterval: 25,
+                    getDrawingHorizontalLine: (value) {
+                      // Goal line at 80%
+                      if (value == 80) {
+                        return FlLine(
+                          color: successColor,
+                          strokeWidth: 2,
+                          dashArray: [8, 4],
+                        );
                       }
-                      
-                      return FlDotCirclePainter(
-                        radius: 4,
-                        color: Colors.white,
-                        strokeWidth: 2.5,
-                        strokeColor: dotBorder,
+                      return FlLine(
+                        color: AppColors.textSecondaryLight.withOpacity(0.1),
+                        strokeWidth: 1,
+                        dashArray: [6, 4],
                       );
                     },
                   ),
-                  isStrokeCapRound: true,
-                ),
-              ],
-              lineTouchData: LineTouchData(
-                enabled: true,
-                touchTooltipData: LineTouchTooltipData(
-                  tooltipRoundedRadius: 12,
-                  fitInsideHorizontally: true,
-                  fitInsideVertically: true,
-                  getTooltipColor: (spot) => AppColors.surfaceDark,
-                  getTooltipItems: (touchedSpots) {
-                    return touchedSpots.map((spot) {
-                      final happiness = (spot.y / 10).toStringAsFixed(1);
-                      return LineTooltipItem(
-                        '💚 Wellness: $happiness/10',
-                        GoogleFonts.manrope(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 11,
-                        ),
-                      );
-                    }).toList();
-                  },
-                ),
-                handleBuiltInTouches: true,
-              ),
-              titlesData: const FlTitlesData(show: false),
-              gridData: const FlGridData(show: false),
-              borderData: FlBorderData(show: false),
-              maxY: 100,
-              minY: 0,
-              minX: -0.5,
-              maxX: (display.length - 0.5),
-            ),
-          ),
-          // Achievement badge overlay
-          if (showAchievement)
-            Positioned(
-              top: 8,
-              right: 8,
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0.0, end: 1.0),
-                duration: const Duration(milliseconds: 600),
-                curve: Curves.elasticOut,
-                builder: (context, value, child) {
-                  return Transform.scale(
-                    scale: value,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [warningColor.withOpacity(0.9), const Color(0xFFFFA000)],
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: warningColor.withOpacity(0.4),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
+                  extraLinesData: ExtraLinesData(
+                    horizontalLines: [
+                      HorizontalLine(
+                        y: 80,
+                        color: successColor.withOpacity(0.7),
+                        strokeWidth: 2,
+                        dashArray: [8, 4],
+                        label: HorizontalLineLabel(
+                          show: true,
+                          alignment: Alignment.topRight,
+                          padding: const EdgeInsets.only(right: 5, bottom: 5),
+                          style: GoogleFonts.manrope(
+                            color: successColor,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
                           ),
-                        ],
+                          labelResolver: (line) => '🎯 Goal',
+                        ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text('🏆', style: TextStyle(fontSize: 16)),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Eco Champion!',
-                            style: GoogleFonts.manrope(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
+                    ],
+                  ),
+                  borderData: FlBorderData(show: false),
+                  alignment: BarChartAlignment.spaceAround,
+                ),
+              ),
+              // Line chart overlay for happiness/wellness trend
+              LineChart(
+                LineChartData(
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: happinessSpots,
+                      isCurved: true,
+                      curveSmoothness: 0.3,
+                      preventCurveOverShooting: true,
+                      color: secondaryColor,
+                      barWidth: 3,
+                      shadow: Shadow(
+                        color: secondaryColor.withOpacity(0.4),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        gradient: LinearGradient(
+                          colors: [
+                            secondaryColor.withOpacity(0.25),
+                            secondaryColor.withOpacity(0.1),
+                            secondaryColor.withOpacity(0.02),
+                            secondaryColor.withOpacity(0.0),
+                          ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          stops: const [0.0, 0.35, 0.7, 1.0],
+                        ),
+                      ),
+                      dotData: FlDotData(
+                        show: true,
+                        getDotPainter: (spot, percent, barData, index) {
+                          final happiness = spot.y / 10;
+                          Color dotBorder = secondaryColor;
+                          if (happiness >= 8) {
+                            dotBorder = successColor;
+                          } else if (happiness >= 6) {
+                            dotBorder = AppColors.info;
+                          } else if (happiness < 4) {
+                            dotBorder = errorColor;
+                          }
+
+                          return FlDotCirclePainter(
+                            radius: 4,
+                            color: Colors.white,
+                            strokeWidth: 2.5,
+                            strokeColor: dotBorder,
+                          );
+                        },
+                      ),
+                      isStrokeCapRound: true,
+                    ),
+                  ],
+                  lineTouchData: LineTouchData(
+                    enabled: true,
+                    touchTooltipData: LineTouchTooltipData(
+                      tooltipRoundedRadius: 12,
+                      fitInsideHorizontally: true,
+                      fitInsideVertically: true,
+                      getTooltipColor: (spot) => AppColors.surfaceDark,
+                      getTooltipItems: (touchedSpots) {
+                        return touchedSpots.map((spot) {
+                          final happiness = (spot.y / 10).toStringAsFixed(1);
+                          return LineTooltipItem(
+                            '💚 Wellness: $happiness/10',
+                            GoogleFonts.manrope(
                               color: Colors.white,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.black.withOpacity(0.3),
-                                  blurRadius: 2,
-                                  offset: const Offset(0, 1),
-                                ),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                            ),
+                          );
+                        }).toList();
+                      },
+                    ),
+                    handleBuiltInTouches: true,
+                  ),
+                  titlesData: const FlTitlesData(show: false),
+                  gridData: const FlGridData(show: false),
+                  borderData: FlBorderData(show: false),
+                  maxY: 100,
+                  minY: 0,
+                  minX: -0.5,
+                  maxX: (display.length - 0.5),
+                ),
+              ),
+              // Achievement badge overlay
+              if (showAchievement)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0.0, end: 1.0),
+                    duration: const Duration(milliseconds: 600),
+                    curve: Curves.elasticOut,
+                    builder: (context, value, child) {
+                      return Transform.scale(
+                        scale: value,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                warningColor.withOpacity(0.9),
+                                const Color(0xFFFFA000),
                               ],
                             ),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: warningColor.withOpacity(0.4),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      );
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text('🏆', style: TextStyle(fontSize: 16)),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Eco Champion!',
+                                style: GoogleFonts.manrope(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                  shadows: [
+                                    Shadow(
+                                      color: Colors.black.withOpacity(0.3),
+                                      blurRadius: 2,
+                                      offset: const Offset(0, 1),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
       },
     );
-    
+
     // Return chart only (removed smart insights)
     return chartWidget;
   }
 
-  void _showDetailModal(Map<String, dynamic> item, List<Map<String, dynamic>> display) {
+  void _showDetailModal(
+    Map<String, dynamic> item,
+    List<Map<String, dynamic>> display,
+  ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
@@ -1296,7 +1479,11 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                           color: primaryColor.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(Icons.calendar_today, color: primaryColor, size: 24),
+                        child: Icon(
+                          Icons.calendar_today,
+                          color: primaryColor,
+                          size: 24,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -1329,12 +1516,14 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                     child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: items.length,
-                      separatorBuilder: (_, __) => Divider(color: Colors.grey.withOpacity(0.2)),
+                      separatorBuilder: (_, __) =>
+                          Divider(color: Colors.grey.withOpacity(0.2)),
                       itemBuilder: (context, idx) {
                         final d = items[idx];
                         final date = d['date'] ?? d['label'] ?? '';
                         final hap = ((d['happiness'] ?? 0) as num).toDouble();
-                        final pct = ((d['completionPercent'] ?? 0) as num).toDouble();
+                        final pct = ((d['completionPercent'] ?? 0) as num)
+                            .toDouble();
                         final cnt = d['count'] ?? 0;
                         return Container(
                           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -1349,7 +1538,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                                       style: GoogleFonts.manrope(
                                         fontWeight: FontWeight.w600,
                                         fontSize: 14,
-                                        color: isDark ? Colors.white : Colors.black87,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black87,
                                       ),
                                     ),
                                     const SizedBox(height: 4),
@@ -1363,9 +1554,15 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                                   ],
                                 ),
                               ),
-                              _buildMetricChip('😊 ${hap.toStringAsFixed(1)}', Colors.blue),
+                              _buildMetricChip(
+                                '😊 ${hap.toStringAsFixed(1)}',
+                                Colors.blue,
+                              ),
                               const SizedBox(width: 8),
-                              _buildMetricChip('${pct.toStringAsFixed(0)}%', primaryColor),
+                              _buildMetricChip(
+                                '${pct.toStringAsFixed(0)}%',
+                                primaryColor,
+                              ),
                             ],
                           ),
                         );
@@ -1401,19 +1598,19 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
   }
 
   // Help dialog removed along with diagnostic UI
-  
+
   /// Build a circular progress view for daily data
   Widget _buildDailyProgressView(Map<String, dynamic> data) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final completion = ((data['completionPercent'] ?? 0) as num).toDouble();
     final happiness = ((data['happiness'] ?? 0) as num).toDouble();
     final count = (data['count'] ?? 0) as int;
-    
+
     // Achievement-themed color based on completion
     Color progressColor;
     String progressMessage;
     String progressEmoji;
-    
+
     if (completion >= 80) {
       progressColor = const Color(0xFF2E7D32);
       progressMessage = 'Champion!';
@@ -1435,7 +1632,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       progressMessage = 'Get Started';
       progressEmoji = '🎯';
     }
-    
+
     return Container(
       height: 240,
       padding: const EdgeInsets.all(20),
@@ -1515,7 +1712,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       ),
     );
   }
-  
+
   Widget _buildDailyStat({
     required IconData icon,
     required String label,
@@ -1539,10 +1736,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
           children: [
             Text(
               label,
-              style: GoogleFonts.manrope(
-                fontSize: 11,
-                color: Colors.grey[600],
-              ),
+              style: GoogleFonts.manrope(fontSize: 11, color: Colors.grey[600]),
             ),
             Text(
               value,
@@ -1611,7 +1805,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                   Text(
                     text,
                     style: GoogleFonts.manrope(
-                      color: isDark ? Colors.white70 : AppColors.textSecondaryLight,
+                      color: isDark
+                          ? Colors.white70
+                          : AppColors.textSecondaryLight,
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                     ),
@@ -1620,7 +1816,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                   Text(
                     'Start logging activities to see your progress!',
                     style: GoogleFonts.manrope(
-                      color: isDark ? Colors.white38 : AppColors.textSecondaryLight.withOpacity(0.6),
+                      color: isDark
+                          ? Colors.white38
+                          : AppColors.textSecondaryLight.withOpacity(0.6),
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
@@ -1675,7 +1873,11 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                             ),
                           ],
                         ),
-                        child: const Icon(Icons.trending_up, color: Colors.white, size: 28),
+                        child: const Icon(
+                          Icons.trending_up,
+                          color: Colors.white,
+                          size: 28,
+                        ),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
@@ -1708,10 +1910,21 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                         onPressed: () async {
                           final user = FirebaseAuth.instance.currentUser;
                           if (user == null) {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please sign in to sync health data')));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Please sign in to sync health data',
+                                ),
+                              ),
+                            );
                             return;
                           }
-                          await Navigator.of(context).push(MaterialPageRoute(builder: (_) => HealthConnectScreen(uid: user.uid)));
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  HealthConnectScreen(uid: user.uid),
+                            ),
+                          );
                           // Refresh Health Connect status when returning
                           _initHealthConnect();
                         },
@@ -1719,7 +1932,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                     ],
                   ),
                   const SizedBox(height: 28),
-                  
+
                   // Range Selector
                   Container(
                     padding: const EdgeInsets.all(4),
@@ -1732,15 +1945,27 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                     child: Row(
                       children: [
                         _buildRangeButton('daily', 'Day', Icons.today),
-                        _buildRangeButton('weekly', 'Week', Icons.calendar_view_week),
-                        _buildRangeButton('monthly', 'Month', Icons.calendar_today),
-                        _buildRangeButton('yearly', 'Year', Icons.calendar_month),
+                        _buildRangeButton(
+                          'weekly',
+                          'Week',
+                          Icons.calendar_view_week,
+                        ),
+                        _buildRangeButton(
+                          'monthly',
+                          'Month',
+                          Icons.calendar_today,
+                        ),
+                        _buildRangeButton(
+                          'yearly',
+                          'Year',
+                          Icons.calendar_month,
+                        ),
                       ],
                     ),
                   ),
-                  
+
                   const SizedBox(height: 24),
-                  
+
                   if (_loading)
                     Center(
                       child: Column(
@@ -1768,7 +1993,11 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                       ),
                       child: Column(
                         children: [
-                          Icon(Icons.error_outline, color: Colors.red, size: 48),
+                          Icon(
+                            Icons.error_outline,
+                            color: Colors.red,
+                            size: 48,
+                          ),
                           const SizedBox(height: 12),
                           Text(
                             'Unable to load data',
@@ -1781,7 +2010,10 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                           const SizedBox(height: 4),
                           Text(
                             _error!,
-                            style: GoogleFonts.manrope(fontSize: 12, color: Colors.red[700]),
+                            style: GoogleFonts.manrope(
+                              fontSize: 12,
+                              color: Colors.red[700],
+                            ),
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 16),
@@ -1792,7 +2024,10 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.red,
                               foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 12,
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -1807,7 +2042,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                       _buildTodayActivityProgressCard(context),
                       const SizedBox(height: 16),
                     ],
-                    
+
                     // Summary Cards Row - Centered Green Score
                     Row(
                       children: [
@@ -1829,9 +2064,11 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                           child: _buildSummaryCard(
                             context,
                             icon: Icons.check_circle,
-                            title: _range == 'daily' ? 'Activities' : 'Completion Rate',
-                            value: _range == 'daily' 
-                                ? '$_todayCompletedCount/$_todayExpectedCount' 
+                            title: _range == 'daily'
+                                ? 'Activities'
+                                : 'Completion Rate',
+                            value: _range == 'daily'
+                                ? '$_todayCompletedCount/$_todayExpectedCount'
                                 : _avgCompletion().toStringAsFixed(0),
                             suffix: _range == 'daily' ? '' : '%',
                             color: primaryColor,
@@ -1842,11 +2079,11 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                         ),
                       ],
                     ),
-                    
+
                     const SizedBox(height: 24),
-                    
+
                     // Main Chart Card
-                      _buildChartCard(
+                    _buildChartCard(
                       context,
                       title: "Performance Trends",
                       subtitle: _range == 'daily'
@@ -1854,20 +2091,20 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                           : _range == 'weekly'
                           ? "Weekly Progress"
                           : _range == 'monthly'
-                              ? "Monthly Impact"
-                              : "Yearly Progress",
+                          ? "Monthly Impact"
+                          : "Yearly Progress",
                       chartWidget: _buildCharts(),
                       showLegend: false,
                     ),
-                      const SizedBox(height: 12),
-                      // (Diagnostic Usage Access panel removed)
-                    
+                    const SizedBox(height: 12),
+
+                    // (Diagnostic Usage Access panel removed)
                     if (_series.isNotEmpty) ...[
                       const SizedBox(height: 16),
                       _buildChangeIndicator(context),
                     ],
                   ],
-                  
+
                   const SizedBox(height: 20),
                   // Total screen time card removed - showing only social media usage
                   // _screenTimeCard(context),
@@ -1888,7 +2125,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
   /// Build Health Connect section with health metrics
   Widget _buildHealthConnectSection(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1925,7 +2162,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                       _healthConnectConnected ? 'Connected' : 'Not connected',
                       style: GoogleFonts.manrope(
                         fontSize: 12,
-                        color: _healthConnectConnected ? Colors.green : Colors.grey[600],
+                        color: _healthConnectConnected
+                            ? Colors.green
+                            : Colors.grey[600],
                       ),
                     ),
                   ],
@@ -1935,9 +2174,12 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                 TextButton.icon(
                   onPressed: () async {
                     final user = FirebaseAuth.instance.currentUser;
-                    await Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => HealthConnectScreen(uid: user?.uid ?? ''),
-                    ));
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            HealthConnectScreen(uid: user?.uid ?? ''),
+                      ),
+                    );
                     // Refresh status when returning
                     _initHealthConnect();
                   },
@@ -1954,38 +2196,46 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
             Row(
               children: [
                 if (_healthConnectData!.steps != null)
-                  Expanded(child: _buildHealthMetricTile(
-                    Icons.directions_walk,
-                    'Steps',
-                    '${_healthConnectData!.steps}',
-                    Colors.blue,
-                  )),
+                  Expanded(
+                    child: _buildHealthMetricTile(
+                      Icons.directions_walk,
+                      'Steps',
+                      '${_healthConnectData!.steps}',
+                      Colors.blue,
+                    ),
+                  ),
                 if (_healthConnectData!.heartRate != null)
-                  Expanded(child: _buildHealthMetricTile(
-                    Icons.favorite,
-                    'Heart Rate',
-                    '${_healthConnectData!.heartRate} bpm',
-                    Colors.red,
-                  )),
+                  Expanded(
+                    child: _buildHealthMetricTile(
+                      Icons.favorite,
+                      'Heart Rate',
+                      '${_healthConnectData!.heartRate} bpm',
+                      Colors.red,
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 12),
             Row(
               children: [
                 if (_healthConnectData!.calories != null)
-                  Expanded(child: _buildHealthMetricTile(
-                    Icons.local_fire_department,
-                    'Calories',
-                    '${_healthConnectData!.calories} kcal',
-                    Colors.orange,
-                  )),
+                  Expanded(
+                    child: _buildHealthMetricTile(
+                      Icons.local_fire_department,
+                      'Calories',
+                      '${_healthConnectData!.calories} kcal',
+                      Colors.orange,
+                    ),
+                  ),
                 if (_healthConnectData!.sleepHours != null)
-                  Expanded(child: _buildHealthMetricTile(
-                    Icons.bedtime,
-                    'Sleep',
-                    '${_healthConnectData!.sleepHours!.toStringAsFixed(1)} hrs',
-                    Colors.purple,
-                  )),
+                  Expanded(
+                    child: _buildHealthMetricTile(
+                      Icons.bedtime,
+                      'Sleep',
+                      '${_healthConnectData!.sleepHours!.toStringAsFixed(1)} hrs',
+                      Colors.purple,
+                    ),
+                  ),
               ],
             ),
           ] else if (_healthConnectConnected) ...[
@@ -2017,7 +2267,12 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     );
   }
 
-  Widget _buildHealthMetricTile(IconData icon, String label, String value, Color color) {
+  Widget _buildHealthMetricTile(
+    IconData icon,
+    String label,
+    String value,
+    Color color,
+  ) {
     return Container(
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -2038,10 +2293,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
           ),
           Text(
             label,
-            style: GoogleFonts.manrope(
-              fontSize: 11,
-              color: Colors.grey[600],
-            ),
+            style: GoogleFonts.manrope(fontSize: 11, color: Colors.grey[600]),
           ),
         ],
       ),
@@ -2051,7 +2303,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
   Widget _buildRangeButton(String value, String label, IconData icon) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isSelected = _range == value;
-    
+
     return Expanded(
       child: GestureDetector(
         onTap: () {
@@ -2112,16 +2364,16 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
   /// Build today's activity progress card with visual progress indicator
   Widget _buildTodayActivityProgressCard(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final progressPercent = _todayExpectedCount > 0 
-        ? _todayCompletedCount / _todayExpectedCount 
+    final progressPercent = _todayExpectedCount > 0
+        ? _todayCompletedCount / _todayExpectedCount
         : 0.0;
-    
+
     // Get emoji and color based on progress - achievement-themed
     String progressEmoji;
     String progressMessage;
     Color progressColor;
     IconData progressIcon;
-    
+
     if (_todayCompletionPercent >= 80) {
       progressEmoji = '🏆';
       progressMessage = 'Champion! You\'re crushing your goals!';
@@ -2148,7 +2400,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       progressColor = const Color(0xFF81C784);
       progressIcon = Icons.flag;
     }
-    
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -2163,10 +2415,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
           stops: const [0.0, 0.4, 1.0],
         ),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: progressColor.withAlpha(50),
-          width: 1.5,
-        ),
+        border: Border.all(color: progressColor.withAlpha(50), width: 1.5),
         boxShadow: [
           BoxShadow(
             color: progressColor.withAlpha(25),
@@ -2184,7 +2433,10 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [progressColor.withAlpha(50), progressColor.withAlpha(25)],
+                    colors: [
+                      progressColor.withAlpha(50),
+                      progressColor.withAlpha(25),
+                    ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
@@ -2249,7 +2501,10 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [progressColor, progressColor.withAlpha(200)],
@@ -2277,7 +2532,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
             ],
           ),
           const SizedBox(height: 20),
-          
+
           // Progress bar with achievement indicator
           Stack(
             children: [
@@ -2286,25 +2541,36 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                 child: LinearProgressIndicator(
                   value: progressPercent.clamp(0.0, 1.0),
                   minHeight: 12,
-                  backgroundColor: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+                  backgroundColor: isDark
+                      ? Colors.grey.shade800
+                      : Colors.grey.shade200,
                   valueColor: AlwaysStoppedAnimation<Color>(progressColor),
                 ),
               ),
               if (progressPercent > 0.15)
                 Positioned(
-                  left: (MediaQuery.of(context).size.width - 80) * progressPercent.clamp(0.0, 1.0) - 8,
+                  left:
+                      (MediaQuery.of(context).size.width - 80) *
+                          progressPercent.clamp(0.0, 1.0) -
+                      8,
                   top: -2,
-                  child: Icon(Icons.star, size: 16, color: Colors.white.withAlpha(220)),
+                  child: Icon(
+                    Icons.star,
+                    size: 16,
+                    color: Colors.white.withAlpha(220),
+                  ),
                 ),
             ],
           ),
           const SizedBox(height: 14),
-          
+
           // Motivational message
           Row(
             children: [
               Icon(
-                _todayCompletionPercent >= 60 ? Icons.trending_up : Icons.tips_and_updates,
+                _todayCompletionPercent >= 60
+                    ? Icons.trending_up
+                    : Icons.tips_and_updates,
                 size: 18,
                 color: progressColor,
               ),
@@ -2325,8 +2591,13 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       ),
     );
   }
-  
-  Widget _buildAchievementStat(IconData icon, String value, String label, Color color) {
+
+  Widget _buildAchievementStat(
+    IconData icon,
+    String value,
+    String label,
+    Color color,
+  ) {
     return Column(
       children: [
         Icon(icon, size: 22, color: color),
@@ -2360,7 +2631,6 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     required Color color,
     required Gradient gradient,
   }) {
-    
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -2425,11 +2695,11 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     bool showLegend = false,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: isDark 
+        gradient: isDark
             ? LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -2441,21 +2711,16 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
             : LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [
-                  Colors.white,
-                  Colors.grey.shade50,
-                ],
+                colors: [Colors.white, Colors.grey.shade50],
               ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: isDark
-              ? Colors.white.withOpacity(0.08)
-              : Colors.grey.shade200,
+          color: isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade200,
           width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: isDark 
+            color: isDark
                 ? Colors.black.withOpacity(0.3)
                 : primaryColor.withOpacity(0.08),
             blurRadius: 24,
@@ -2480,7 +2745,10 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [primaryColor.withOpacity(0.2), primaryColor.withOpacity(0.1)],
+                    colors: [
+                      primaryColor.withOpacity(0.2),
+                      primaryColor.withOpacity(0.1),
+                    ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
@@ -2513,7 +2781,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                       style: GoogleFonts.manrope(
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
-                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                        color: isDark
+                            ? Colors.grey.shade400
+                            : Colors.grey.shade600,
                         height: 1.3,
                       ),
                     ),
@@ -2527,12 +2797,12 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: isDark 
+                color: isDark
                     ? Colors.white.withOpacity(0.03)
                     : Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: isDark 
+                  color: isDark
                       ? Colors.white.withOpacity(0.05)
                       : Colors.grey.shade200,
                 ),
@@ -2544,7 +2814,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                   Container(
                     width: 1,
                     height: 16,
-                    color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade300,
+                    color: isDark
+                        ? Colors.white.withOpacity(0.1)
+                        : Colors.grey.shade300,
                   ),
                   _buildLegendItem('Happiness', secondaryColor, isDark),
                 ],
@@ -2599,9 +2871,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isPositive = _isPositiveChange();
     final changeText = _changeText();
-    
+
     if (changeText.isEmpty) return const SizedBox.shrink();
-    
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -2616,7 +2888,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: (isPositive ? Colors.green : Colors.orange).withOpacity(0.2),
+              color: (isPositive ? Colors.green : Colors.orange).withOpacity(
+                0.2,
+              ),
               shape: BoxShape.circle,
             ),
             child: Icon(
@@ -2655,11 +2929,11 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
   }
 
   /// Removed total screen time card - showing only social media usage
-  
+
   /// Build social media usage breakdown below main digital wellbeing card
   Widget _buildSocialMediaBreakdown(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     // Show card even if empty, with permission prompt or "no data" message
     return Container(
       margin: const EdgeInsets.only(top: 16),
@@ -2725,13 +2999,22 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
               ),
               // Time range badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: primaryColor.withAlpha(20),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  _range == 'daily' ? 'Today' : _range == 'weekly' ? '7 Days' : _range == 'monthly' ? 'Month' : 'Year',
+                  _range == 'daily'
+                      ? 'Today'
+                      : _range == 'weekly'
+                      ? '7 Days'
+                      : _range == 'monthly'
+                      ? 'Month'
+                      : 'Year',
                   style: GoogleFonts.manrope(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -2742,13 +3025,83 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
             ],
           ),
           const SizedBox(height: 16),
+
+          // Screen control entry (limits + quiet hours)
+          InkWell(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PermissionWrapper()),
+              );
+            },
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.grey[800]?.withAlpha(120)
+                    : Colors.grey[50],
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isDark ? Colors.grey[700]! : Colors.grey[200]!,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: primaryColor.withAlpha(25),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.lock_clock,
+                      color: primaryColor,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Screen Control',
+                          style: GoogleFonts.manrope(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Set app limits and quiet hours',
+                          style: GoogleFonts.manrope(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, color: Colors.grey[500]),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
           // Show permission prompt if not granted
           if (!_usagePermission)
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Colors.blue.withAlpha(20), Colors.purple.withAlpha(10)],
+                  colors: [
+                    Colors.blue.withAlpha(20),
+                    Colors.purple.withAlpha(10),
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -2763,7 +3116,11 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                       color: Colors.blue.withAlpha(30),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.lock_outline, color: Colors.blue, size: 28),
+                    child: const Icon(
+                      Icons.lock_outline,
+                      color: Colors.blue,
+                      size: 28,
+                    ),
                   ),
                   const SizedBox(height: 14),
                   Text(
@@ -2794,7 +3151,8 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                         await Future.delayed(const Duration(milliseconds: 800));
                         // Retry permission check up to 3 times with delay
                         for (int i = 0; i < 3; i++) {
-                          final granted = await DigitalWellbeingService.isPermissionGranted();
+                          final granted =
+                              await DigitalWellbeingService.isPermissionGranted();
                           if (granted) {
                             if (mounted) {
                               setState(() => _usagePermission = true);
@@ -2802,7 +3160,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                             }
                             break;
                           }
-                          await Future.delayed(const Duration(milliseconds: 500));
+                          await Future.delayed(
+                            const Duration(milliseconds: 500),
+                          );
                         }
                       },
                       icon: const Icon(Icons.security, size: 18),
@@ -2828,12 +3188,18 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: isDark ? Colors.grey[800]?.withAlpha(100) : Colors.grey[50],
+                color: isDark
+                    ? Colors.grey[800]?.withAlpha(100)
+                    : Colors.grey[50],
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Column(
                 children: [
-                  Icon(Icons.celebration_outlined, color: primaryColor, size: 40),
+                  Icon(
+                    Icons.celebration_outlined,
+                    color: primaryColor,
+                    size: 40,
+                  ),
                   const SizedBox(height: 12),
                   Text(
                     'Great job! 🌱',
@@ -2869,7 +3235,10 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                     style: OutlinedButton.styleFrom(
                       foregroundColor: primaryColor,
                       side: BorderSide(color: primaryColor.withAlpha(100)),
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 10,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -2899,7 +3268,11 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.timer_outlined, color: Colors.orange.shade700, size: 24),
+                      Icon(
+                        Icons.timer_outlined,
+                        color: Colors.orange.shade700,
+                        size: 24,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -2929,17 +3302,22 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                 ),
                 const SizedBox(height: 14),
                 // App list
-                ..._socialMediaApps.map((app) => _buildAppUsageItem(app, isDark)),
+                ..._socialMediaApps.map(
+                  (app) => _buildAppUsageItem(app, isDark),
+                ),
               ],
             ),
         ],
       ),
     );
   }
-  
+
   String _formatTotalUsage() {
     if (_socialMediaApps.isEmpty) return '0m';
-    final totalMinutes = _socialMediaApps.fold<double>(0, (total, app) => total + ((app['minutes'] as num?)?.toDouble() ?? 0));
+    final totalMinutes = _socialMediaApps.fold<double>(
+      0,
+      (total, app) => total + ((app['minutes'] as num?)?.toDouble() ?? 0),
+    );
     if (totalMinutes >= 60) {
       final hours = (totalMinutes / 60).floor();
       final mins = (totalMinutes % 60).round();
@@ -2947,13 +3325,16 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     }
     return '${totalMinutes.round()}m';
   }
-  
+
   Widget _buildUsageIndicator() {
-    final totalMinutes = _socialMediaApps.fold<double>(0, (total, app) => total + ((app['minutes'] as num?)?.toDouble() ?? 0));
+    final totalMinutes = _socialMediaApps.fold<double>(
+      0,
+      (total, app) => total + ((app['minutes'] as num?)?.toDouble() ?? 0),
+    );
     Color color;
     IconData icon;
     String label;
-    
+
     if (totalMinutes < 60) {
       color = primaryColor;
       icon = Icons.thumb_up;
@@ -2967,7 +3348,7 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       icon = Icons.warning;
       label = 'High';
     }
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -2991,16 +3372,16 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       ),
     );
   }
-  
+
   Widget _buildAppUsageItem(Map<String, dynamic> app, bool isDark) {
     final appName = app['appName'] as String? ?? 'Unknown App';
     final minutes = (app['minutes'] as num?)?.toDouble() ?? 0.0;
     final hours = (minutes / 60.0);
-    
+
     // Get app-specific icon and color
     IconData appIcon;
     Color appColor;
-    
+
     final lowerName = appName.toLowerCase();
     if (lowerName.contains('instagram')) {
       appIcon = Icons.camera_alt;
@@ -3042,10 +3423,10 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       appIcon = Icons.apps;
       appColor = Colors.blueGrey;
     }
-    
+
     // Calculate progress (assuming 2 hours = 100% for visualization)
     final progress = (minutes / 120).clamp(0.0, 1.0);
-    
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -3085,7 +3466,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      hours >= 1 ? '${hours.toStringAsFixed(1)} hours' : '${minutes.toStringAsFixed(0)} min',
+                      hours >= 1
+                          ? '${hours.toStringAsFixed(1)} hours'
+                          : '${minutes.toStringAsFixed(0)} min',
                       style: GoogleFonts.manrope(
                         fontSize: 12,
                         color: Colors.grey[600],
@@ -3096,13 +3479,18 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
               ),
               // Usage time badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: appColor.withAlpha(20),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  hours >= 1 ? '${hours.toStringAsFixed(1)}h' : '${minutes.toStringAsFixed(0)}m',
+                  hours >= 1
+                      ? '${hours.toStringAsFixed(1)}h'
+                      : '${minutes.toStringAsFixed(0)}m',
                   style: GoogleFonts.manrope(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -3120,7 +3508,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
               value: progress,
               minHeight: 4,
               backgroundColor: Colors.grey.withAlpha(40),
-              valueColor: AlwaysStoppedAnimation<Color>(appColor.withAlpha(180)),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                appColor.withAlpha(180),
+              ),
             ),
           ),
         ],
@@ -3147,9 +3537,21 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: GoogleFonts.manrope(fontSize: 12, color: Colors.grey[600])),
+              Text(
+                title,
+                style: GoogleFonts.manrope(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
+              ),
               const SizedBox(height: 4),
-              Text(value, style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w700)),
+              Text(
+                value,
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ],
           ),
         ),
@@ -3161,7 +3563,8 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
     try {
       var data = Map<String, dynamic>.from(raw);
       // unwind common wrapping
-      if (data.containsKey('fitbit_steps_payload') && data['fitbit_steps_payload'] is Map) {
+      if (data.containsKey('fitbit_steps_payload') &&
+          data['fitbit_steps_payload'] is Map) {
         data = Map<String, dynamic>.from(data['fitbit_steps_payload'] as Map);
       }
 
@@ -3174,11 +3577,19 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
         final list = List.from(data['activities-steps'] as List);
         if (list.isNotEmpty) {
           // sum last N entries depending on range (best-effort)
-          final take = _range == 'daily' ? 1 : _range == 'weekly' ? 7 : _range == 'monthly' ? list.length : list.length;
+          final take = _range == 'daily'
+              ? 1
+              : _range == 'weekly'
+              ? 7
+              : _range == 'monthly'
+              ? list.length
+              : list.length;
           final sliced = list.reversed.take(take);
           int total = 0;
           for (final e in sliced) {
-            final v = e is Map && e['value'] != null ? int.tryParse(e['value'].toString()) ?? 0 : 0;
+            final v = e is Map && e['value'] != null
+                ? int.tryParse(e['value'].toString()) ?? 0
+                : 0;
             total += v;
           }
           steps = total;
@@ -3187,7 +3598,9 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
         try {
           final list = List.from(data['activities'] as List);
           if (list.isNotEmpty) {
-            steps = list.map<int>((e) => (e['steps'] as num?)?.toInt() ?? 0).fold<int>(0, (int a, int b) => a + b);
+            steps = list
+                .map<int>((e) => (e['steps'] as num?)?.toInt() ?? 0)
+                .fold<int>(0, (int a, int b) => a + b);
           }
         } catch (_) {}
       }
@@ -3196,14 +3609,21 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       if (data['activities-heart'] is List) {
         try {
           final list = List.from(data['activities-heart'] as List);
-          final take = _range == 'daily' ? 1 : _range == 'weekly' ? 7 : list.length;
-          final sliced = list.reversed.take(take).where((e) => e is Map && e['value'] is Map);
+          final take = _range == 'daily'
+              ? 1
+              : _range == 'weekly'
+              ? 7
+              : list.length;
+          final sliced = list.reversed
+              .take(take)
+              .where((e) => e is Map && e['value'] is Map);
           final hrVals = <double>[];
           for (final e in sliced) {
             final v = (e['value'] as Map)['restingHeartRate'];
             if (v != null) hrVals.add((v as num).toDouble());
           }
-          if (hrVals.isNotEmpty) hr = hrVals.reduce((a, b) => a + b) / hrVals.length;
+          if (hrVals.isNotEmpty)
+            hr = hrVals.reduce((a, b) => a + b) / hrVals.length;
         } catch (_) {}
       }
 
@@ -3211,13 +3631,21 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       if (data['sleep'] is List) {
         try {
           final list = List.from(data['sleep'] as List);
-          final take = _range == 'daily' ? 1 : _range == 'weekly' ? 7 : list.length;
+          final take = _range == 'daily'
+              ? 1
+              : _range == 'weekly'
+              ? 7
+              : list.length;
           final sliced = list.reversed.take(take);
           double totalMins = 0;
           int count = 0;
           for (final s in sliced) {
             if (s is Map) {
-              final mins = (s['minutesAsleep'] ?? s['totalMinutesAsleep'] ?? s['duration']) as num?;
+              final mins =
+                  (s['minutesAsleep'] ??
+                          s['totalMinutesAsleep'] ??
+                          s['duration'])
+                      as num?;
               if (mins != null) {
                 // duration might be ms; if large assume ms
                 final m = mins.toDouble();
@@ -3226,7 +3654,8 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
               }
             }
           }
-          if (count > 0) sleepHours = totalMins / 60.0 / ( _range == 'weekly' ? count : 1 );
+          if (count > 0)
+            sleepHours = totalMins / 60.0 / (_range == 'weekly' ? count : 1);
         } catch (_) {}
       }
 
@@ -3246,8 +3675,10 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
       // Samsung payloads vary by plugin; try common keys
       if (data.containsKey('steps')) {
         final s = data['steps'];
-        if (s is num) steps = s.toInt();
-        else if (s is Map && s['total'] != null) steps = (s['total'] as num).toInt();
+        if (s is num)
+          steps = s.toInt();
+        else if (s is Map && s['total'] != null)
+          steps = (s['total'] as num).toInt();
       }
 
       if (steps == null) {
@@ -3255,21 +3686,27 @@ class _ProgressPageState extends State<ProgressPage> with WidgetsBindingObserver
         if (data['activities'] is List) {
           try {
             final list = List.from(data['activities'] as List);
-            steps = list.map<int>((e) => (e['steps'] as num?)?.toInt() ?? 0).fold<int>(0, (int a, int b) => a + b);
+            steps = list
+                .map<int>((e) => (e['steps'] as num?)?.toInt() ?? 0)
+                .fold<int>(0, (int a, int b) => a + b);
           } catch (_) {}
         }
       }
 
       if (data.containsKey('heart_rate')) {
         final h = data['heart_rate'];
-        if (h is num) hr = h.toDouble();
-        else if (h is Map && h['resting'] != null) hr = (h['resting'] as num).toDouble();
+        if (h is num)
+          hr = h.toDouble();
+        else if (h is Map && h['resting'] != null)
+          hr = (h['resting'] as num).toDouble();
       }
 
       if (data.containsKey('sleep')) {
         final s = data['sleep'];
-  if (s is num) sleepHours = s.toDouble();
-  else if (s is Map && s['hours'] != null) sleepHours = (s['hours'] as num).toDouble();
+        if (s is num)
+          sleepHours = s.toDouble();
+        else if (s is Map && s['hours'] != null)
+          sleepHours = (s['hours'] as num).toDouble();
       }
 
       return {'steps': steps, 'hr': hr, 'sleep': sleepHours};

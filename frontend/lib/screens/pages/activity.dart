@@ -17,6 +17,7 @@ import 'package:provider/provider.dart';
 import '../../models/lux.dart';
 import 'meditation.dart';
 import '../../models/deepWork.dart';
+import '../../models/screen_control.dart';
 
 class ActivityPage extends StatefulWidget {
   const ActivityPage({super.key});
@@ -190,16 +191,13 @@ class _ActivityPageState extends State<ActivityPage> {
               '[Activity] Completing activity: $activityId on $localDate',
             );
 
-            await api
-                .completeActivity(activityId, {
-                  'date': now.toIso8601String(),
-                  'localDate': localDate,
-                  'weight':
-                      activity['weight'] ??
-                      10, // Wellness activities use weight 10
-                  'isWellnessActivity': activity['isWellnessActivity'] ?? false,
-                })
-                .timeout(const Duration(seconds: 15));
+            await api.completeActivity(activityId, {
+              'date': now.toIso8601String(),
+              'localDate': localDate,
+              'weight':
+                  activity['weight'] ?? 10, // Wellness activities use weight 10
+              'isWellnessActivity': activity['isWellnessActivity'] ?? false,
+            }).timeout(const Duration(seconds: 15));
 
             await CompletionStore.markCompleted(activityId);
             RecentDataStore.recordActivityComplete(100, DateTime.now());
@@ -372,9 +370,8 @@ class _ActivityPageState extends State<ActivityPage> {
                       Center(
                         child: Icon(
                           icon,
-                          color: completed
-                              ? Colors.green.shade700
-                              : categoryColor,
+                          color:
+                              completed ? Colors.green.shade700 : categoryColor,
                           size: 28,
                         ),
                       ),
@@ -454,65 +451,48 @@ class _ActivityPageState extends State<ActivityPage> {
                                   vertical: 8,
                                 ),
                                 decoration: BoxDecoration(
-                                  // More noticeable styling for mindfulness "Practice" button
-                                  gradient: _isMindfulnessActivity(activity)
-                                      ? LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                          colors: [
-                                            primaryColor.withOpacity(0.18),
-                                            primaryColor.withOpacity(0.08),
-                                          ],
-                                        )
-                                      : null,
-                                  color: _isMindfulnessActivity(activity)
-                                      ? null
-                                      : primaryColor.withOpacity(0.08),
+                                  color: _isMindfulnessActivity(activity) ||
+                                          _isScreenControlActivity(activity)
+                                      ? const Color(0xFFFFF3E0)
+                                      : const Color(0xFFF5F5F5),
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
-                                    color: primaryColor.withOpacity(0.25),
+                                    color: _isMindfulnessActivity(activity) ||
+                                            _isScreenControlActivity(activity)
+                                        ? const Color(0xFFD7CCC8)
+                                        : Colors.grey.shade300,
+                                    width: 1,
                                   ),
-                                  boxShadow: _isMindfulnessActivity(activity)
-                                      ? [
-                                          BoxShadow(
-                                            color: primaryColor.withOpacity(
-                                              0.15,
-                                            ),
-                                            blurRadius: 8,
-                                            offset: const Offset(0, 2),
-                                          ),
-                                        ]
-                                      : [],
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Container(
-                                      width: 20,
-                                      height: 20,
-                                      decoration: BoxDecoration(
-                                        color: primaryColor.withOpacity(0.15),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Icon(
-                                        _isMindfulnessActivity(activity) ||
-                                                _isDeepWorkActivity(activity)
-                                            ? Icons.play_arrow_rounded
-                                            : Icons.info_outline,
-                                        color: primaryColor,
-                                        size: 16,
-                                      ),
+                                    Icon(
+                                      _isMindfulnessActivity(activity) ||
+                                              _isScreenControlActivity(activity)
+                                          ? Icons.play_arrow_rounded
+                                          : Icons.info_outline,
+                                      color: _isMindfulnessActivity(activity) ||
+                                              _isScreenControlActivity(activity)
+                                          ? const Color(0xFF800000)
+                                          : primaryColor,
+                                      size: 16,
                                     ),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 6),
                                     Text(
                                       _isMindfulnessActivity(activity) ||
-                                              _isDeepWorkActivity(activity)
+                                              _isScreenControlActivity(activity)
                                           ? 'Practice'
                                           : 'Details',
                                       style: GoogleFonts.manrope(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w700,
-                                        color: primaryColor,
+                                        color:
+                                            _isMindfulnessActivity(activity) ||
+                                                    _isScreenControlActivity(
+                                                        activity)
+                                                ? const Color(0xFF800000)
+                                                : primaryColor,
                                       ),
                                     ),
                                   ],
@@ -560,6 +540,15 @@ class _ActivityPageState extends State<ActivityPage> {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => const DeepWorkScreen()),
+      );
+      return;
+    }
+
+    // Screen control/digital wellness activities open the screen control flow
+    if (_isScreenControlActivity(activity)) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const PermissionWrapper()),
       );
       return;
     }
@@ -829,8 +818,8 @@ class _ActivityPageState extends State<ActivityPage> {
             final currentTimeSlot =
                 WellnessActivityService.getCurrentTimeSlot();
             final isCurrent = timeSlot.toLowerCase().contains(
-              currentTimeSlot.toLowerCase(),
-            );
+                  currentTimeSlot.toLowerCase(),
+                );
 
             // Extract short name (e.g., "Morning" from "Morning (6am-9am)")
             final shortName = timeSlot.split('(').first.trim();
@@ -866,8 +855,8 @@ class _ActivityPageState extends State<ActivityPage> {
                       color: isSelected
                           ? primaryColor
                           : (isCurrent
-                                ? primaryColor.withOpacity(0.35)
-                                : Colors.grey.shade300),
+                              ? primaryColor.withOpacity(0.35)
+                              : Colors.grey.shade300),
                       width: isSelected ? 1.5 : 1,
                     ),
                     boxShadow: isSelected
@@ -898,14 +887,13 @@ class _ActivityPageState extends State<ActivityPage> {
                         shortName,
                         style: GoogleFonts.manrope(
                           fontSize: 13.5,
-                          fontWeight: isSelected
-                              ? FontWeight.w700
-                              : FontWeight.w600,
+                          fontWeight:
+                              isSelected ? FontWeight.w700 : FontWeight.w600,
                           color: isSelected
                               ? Colors.white
                               : (isCurrent
-                                    ? primaryColor
-                                    : Colors.grey.shade700),
+                                  ? primaryColor
+                                  : Colors.grey.shade700),
                           letterSpacing: -0.2,
                         ),
                       ),
@@ -1158,9 +1146,8 @@ class _ActivityPageState extends State<ActivityPage> {
                         min: 1,
                         max: 10,
                         value: _happiness.toDouble(),
-                        activeColor: _canLogWellness
-                            ? primaryColor
-                            : Colors.grey,
+                        activeColor:
+                            _canLogWellness ? primaryColor : Colors.grey,
                         inactiveColor: Colors.grey.shade200,
                         onChanged: _canLogWellness
                             ? (value) {
@@ -1199,8 +1186,7 @@ class _ActivityPageState extends State<ActivityPage> {
                           color: Colors.transparent,
                           child: InkWell(
                             borderRadius: BorderRadius.circular(14),
-                            onTap:
-                                (_happinessSubmitting ||
+                            onTap: (_happinessSubmitting ||
                                     !_canLogWellness ||
                                     _wellnessLoading)
                                 ? null
@@ -1215,9 +1201,9 @@ class _ActivityPageState extends State<ActivityPage> {
                                         ScaffoldMessenger.maybeOf(context);
                                     final notifierBefore =
                                         Provider.of<ProgressRefreshNotifier>(
-                                          context,
-                                          listen: false,
-                                        );
+                                      context,
+                                      listen: false,
+                                    );
                                     try {
                                       await api
                                           .postHappiness(_happiness)
@@ -1280,13 +1266,13 @@ class _ActivityPageState extends State<ActivityPage> {
                                       String userMessage =
                                           'Could not save happiness level';
                                       if (e.toString().contains(
-                                        'TimeoutException',
-                                      )) {
+                                            'TimeoutException',
+                                          )) {
                                         userMessage =
                                             'Request timed out. Please check your connection';
                                       } else if (e.toString().contains(
-                                        'SocketException',
-                                      )) {
+                                            'SocketException',
+                                          )) {
                                         userMessage =
                                             'No internet. Your happiness level will be saved when you\'re back online';
                                       }
@@ -1350,8 +1336,8 @@ class _ActivityPageState extends State<ActivityPage> {
                                     : [],
                               ),
                               child: Center(
-                                child:
-                                    (_happinessSubmitting || _wellnessLoading)
+                                child: (_happinessSubmitting ||
+                                        _wellnessLoading)
                                     ? const SizedBox(
                                         height: 20,
                                         width: 20,
@@ -1579,8 +1565,8 @@ class _ActivityPageState extends State<ActivityPage> {
     final timeSlot = _selectedTimeSlot ?? 'Activities';
     final currentTimeSlot = WellnessActivityService.getCurrentTimeSlot();
     final isCurrentSlot = timeSlot.toLowerCase().contains(
-      currentTimeSlot.toLowerCase(),
-    );
+          currentTimeSlot.toLowerCase(),
+        );
     final timeSlotDescription = _getTimeSlotDescription(timeSlot);
 
     // Time slot header with description
@@ -1610,9 +1596,8 @@ class _ActivityPageState extends State<ActivityPage> {
                     ),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: isCurrentSlot
-                          ? primaryColor
-                          : Colors.grey.shade300,
+                      color:
+                          isCurrentSlot ? primaryColor : Colors.grey.shade300,
                       width: 1.5,
                     ),
                   ),
@@ -1624,9 +1609,8 @@ class _ActivityPageState extends State<ActivityPage> {
                             ? Icons.access_time_filled
                             : Icons.access_time,
                         size: 16,
-                        color: isCurrentSlot
-                            ? primaryColor
-                            : Colors.grey.shade600,
+                        color:
+                            isCurrentSlot ? primaryColor : Colors.grey.shade600,
                       ),
                       const SizedBox(width: 6),
                       Text(
@@ -1886,16 +1870,14 @@ class _ActivityPageState extends State<ActivityPage> {
                   child: LinearProgressIndicator(
                     value: progressPercent,
                     minHeight: 12,
-                    backgroundColor: isDark
-                        ? Colors.grey.shade800
-                        : Colors.grey.shade200,
+                    backgroundColor:
+                        isDark ? Colors.grey.shade800 : Colors.grey.shade200,
                     valueColor: AlwaysStoppedAnimation<Color>(progressColor),
                   ),
                 ),
                 if (progressPercent > 0.1)
                   Positioned(
-                    left:
-                        (MediaQuery.of(context).size.width - 80) *
+                    left: (MediaQuery.of(context).size.width - 80) *
                             progressPercent -
                         8,
                     top: -2,
@@ -1968,6 +1950,27 @@ class _ActivityPageState extends State<ActivityPage> {
         title.contains('meditation');
   }
 
+  /// Check if activity is a screen control/digital wellness activity
+  bool _isScreenControlActivity(Map<String, dynamic> activity) {
+    final title = (activity['title'] ?? '').toString().toLowerCase();
+    final description =
+        (activity['description'] ?? '').toString().toLowerCase();
+    final category = (activity['category'] ?? '').toString().toLowerCase();
+    const keywords = [
+      'screen',
+      'social media',
+      'whatsapp',
+      'distractions',
+      'digital',
+      'phone usage',
+      'scrolling',
+      'reels',
+      'shorts',
+    ];
+    return keywords.any((k) =>
+        title.contains(k) || description.contains(k) || category.contains(k));
+  }
+
   /// Check if activity is a deep work/study activity
   bool _isDeepWorkActivity(Map<String, dynamic> activity) {
     final title = (activity['title'] ?? '').toString().toLowerCase();
@@ -1982,9 +1985,8 @@ class _ActivityPageState extends State<ActivityPage> {
   /// Detect if the activity pertains to light intensity / lux measurement
   bool _isLuxActivity(Map<String, dynamic> activity) {
     final title = (activity['title'] ?? '').toString().toLowerCase();
-    final description = (activity['description'] ?? '')
-        .toString()
-        .toLowerCase();
+    final description =
+        (activity['description'] ?? '').toString().toLowerCase();
     const keywords = [
       'lux',
       'light intensity',
@@ -2163,7 +2165,7 @@ Join me on LiveGreen and start your wellness journey today!
             final String currentPhase = _breathingPhase[activityId] ?? '';
             final int remainingTotal =
                 (_totalDurationSeconds[activityId] ?? 0) -
-                (_elapsedSeconds[activityId] ?? 0);
+                    (_elapsedSeconds[activityId] ?? 0);
 
             return AlertDialog(
               shape: RoundedRectangleBorder(
@@ -2503,8 +2505,8 @@ Join me on LiveGreen and start your wellness journey today!
                                         backgroundColor: Colors.grey[800],
                                         valueColor:
                                             AlwaysStoppedAnimation<Color>(
-                                              primaryColor,
-                                            ),
+                                          primaryColor,
+                                        ),
                                       ),
                                     ),
                                     Column(
@@ -2646,8 +2648,11 @@ Join me on LiveGreen and start your wellness journey today!
                       ),
                     ),
                     child: Text(
-                      'Begin Mindfulness Session',
-                      style: GoogleFonts.manrope(fontWeight: FontWeight.bold),
+                      'Begin Session',
+                      style: GoogleFonts.manrope(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ],
@@ -3002,18 +3007,16 @@ Join me on LiveGreen and start your wellness journey today!
   /// Check if user can log wellness (24 hours since last log)
   bool get _canLogWellness {
     if (_lastWellnessTime == null) return true;
-    final hoursSinceLastLog = DateTime.now()
-        .difference(_lastWellnessTime!)
-        .inHours;
+    final hoursSinceLastLog =
+        DateTime.now().difference(_lastWellnessTime!).inHours;
     return hoursSinceLastLog >= 24;
   }
 
   /// Get hours remaining until next wellness log allowed
   int get _hoursUntilNextLog {
     if (_lastWellnessTime == null) return 0;
-    final hoursSinceLastLog = DateTime.now()
-        .difference(_lastWellnessTime!)
-        .inHours;
+    final hoursSinceLastLog =
+        DateTime.now().difference(_lastWellnessTime!).inHours;
     return (24 - hoursSinceLastLog).clamp(0, 24);
   }
 
@@ -3080,9 +3083,9 @@ Join me on LiveGreen and start your wellness journey today!
         if (activities.isEmpty) {
           final api = ApiService(baseUrl: cfg.apiBaseUrl);
           final list = await api.getActivities().timeout(
-            const Duration(seconds: 15),
-            onTimeout: () => throw TimeoutException('Request timed out'),
-          );
+                const Duration(seconds: 15),
+                onTimeout: () => throw TimeoutException('Request timed out'),
+              );
           activities = List<Map<String, dynamic>>.from(
             list.map((e) => Map<String, dynamic>.from(e as Map)),
           );
@@ -3091,9 +3094,9 @@ Join me on LiveGreen and start your wellness journey today!
         // No wellness profile - load regular activities from API
         final api = ApiService(baseUrl: cfg.apiBaseUrl);
         final list = await api.getActivities().timeout(
-          const Duration(seconds: 15),
-          onTimeout: () => throw TimeoutException('Request timed out'),
-        );
+              const Duration(seconds: 15),
+              onTimeout: () => throw TimeoutException('Request timed out'),
+            );
         activities = List<Map<String, dynamic>>.from(
           list.map((e) => Map<String, dynamic>.from(e as Map)),
         );
@@ -3125,8 +3128,7 @@ Join me on LiveGreen and start your wellness journey today!
           await WellnessActivityService.getTodaysCompletedActivityIds();
 
       for (final a in _activities) {
-        final id =
-            a['id'] ??
+        final id = a['id'] ??
             (a['title'] ?? '').toString().toLowerCase().replaceAll(' ', '_');
         // Check Firestore first, then fall back to local cache
         final isCompleted = completedIds.contains(id);

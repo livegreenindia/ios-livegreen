@@ -99,108 +99,124 @@ class _LightMeterAppState extends State<LightMeterApp> {
 
   @override
   Widget build(BuildContext context) {
+    final isSmallScreen = MediaQuery.of(context).size.width < 400;
+    final double adjustedLux = luxValue * 2; // scale sensor reading for display
+
     return Scaffold(
       backgroundColor: const Color(0xFF1A3A2E),
       body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 16),
-            const Text(
-              'Light Meter',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            if (!sensorAvailable)
-              const Text(
-                "Unable to access ambient light",
-                style: TextStyle(color: Colors.red),
-              ),
-
-            if (sensorAvailable)
-              Column(
-                children: [
-                  Text(
-                    luxValue.toStringAsFixed(0),
-                    style: const TextStyle(
-                      color: Color(0xFF00FF88),
-                      fontSize: 90,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Text(
-                    'lux',
-                    style: TextStyle(color: Colors.white, fontSize: 22),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    getRecommendation(luxValue),
-                    style: const TextStyle(
-                      color: Color(0xFF00FF88),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-
-            const SizedBox(height: 20),
-
-            // Let table size to its content to avoid excessive empty space
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: buildRecommendationTable(),
-            ),
-            const SizedBox(height: 16),
-
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  isActive = !isActive;
-                  if (isActive) {
-                    startSensor();
-                  } else {
-                    stopSensor();
-                    widget.onStop?.call();
-                  }
-                });
-              },
-              child: Container(
-                // Responsive width: up to 420px on wide screens, else 90% width
-                width: (MediaQuery.of(context).size.width > 600)
-                    ? 360
-                    : MediaQuery.of(context).size.width * 0.8,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                constraints: const BoxConstraints(minHeight: 48),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF00FF88),
-                  borderRadius: BorderRadius.circular(50),
-                ),
-                child: Center(
-                  child: Text(
-                    isActive ? 'Stop Measurement' : 'Start Measurement',
-                    style: const TextStyle(
-                      color: Color(0xFF1A3A2E),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 18,
-                    ),
-                  ),
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              const SizedBox(height: 16),
+              Text(
+                'Light Meter',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isSmallScreen ? 18 : 22,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-          ],
+              const SizedBox(height: 16),
+
+              if (!sensorAvailable)
+                const Text(
+                  "Unable to access ambient light",
+                  style: TextStyle(color: Colors.red),
+                ),
+
+              if (sensorAvailable)
+                Column(
+                  children: [
+                    Text(
+                      adjustedLux.toStringAsFixed(0),
+                      style: TextStyle(
+                        color: const Color(0xFF00FF88),
+                        fontSize: isSmallScreen ? 60 : 90,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'lux',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: isSmallScreen ? 16 : 22,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Text(
+                        getRecommendation(adjustedLux),
+                        style: TextStyle(
+                          color: const Color(0xFF00FF88),
+                          fontSize: isSmallScreen ? 14 : 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
+
+              const SizedBox(height: 16),
+
+              // Table with responsive padding
+              Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isSmallScreen ? 12 : 20,
+                ),
+                child: buildRecommendationTable(adjustedLux),
+              ),
+              const SizedBox(height: 16),
+
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    isActive = !isActive;
+                    if (isActive) {
+                      startSensor();
+                    } else {
+                      stopSensor();
+                      widget.onStop?.call();
+                    }
+                  });
+                },
+                child: Container(
+                  width: isSmallScreen
+                      ? MediaQuery.of(context).size.width * 0.85
+                      : (MediaQuery.of(context).size.width > 600)
+                          ? 360
+                          : MediaQuery.of(context).size.width * 0.8,
+                  padding: EdgeInsets.symmetric(
+                    vertical: isSmallScreen ? 12 : 14,
+                  ),
+                  constraints: const BoxConstraints(minHeight: 48),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00FF88),
+                    borderRadius: BorderRadius.circular(50),
+                  ),
+                  child: Center(
+                    child: Text(
+                      isActive ? 'Stop' : 'Start',
+                      style: TextStyle(
+                        color: const Color(0xFF1A3A2E),
+                        fontWeight: FontWeight.w600,
+                        fontSize: isSmallScreen ? 14 : 16,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget buildRecommendationTable() {
+  Widget buildRecommendationTable(double lux) {
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFF234338),
@@ -247,7 +263,7 @@ class _LightMeterAppState extends State<LightMeterApp> {
             ),
           ),
           ...lightingData.map((row) {
-            final highlight = isInRange(luxValue, row['activity']!);
+            final highlight = isInRange(lux, row['activity']!);
             return Container(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
               decoration: const BoxDecoration(
@@ -261,12 +277,10 @@ class _LightMeterAppState extends State<LightMeterApp> {
                     child: Text(
                       row['activity']!,
                       style: TextStyle(
-                        color: highlight
-                            ? const Color(0xFF00FF88)
-                            : Colors.white,
-                        fontWeight: highlight
-                            ? FontWeight.w700
-                            : FontWeight.normal,
+                        color:
+                            highlight ? const Color(0xFF00FF88) : Colors.white,
+                        fontWeight:
+                            highlight ? FontWeight.w700 : FontWeight.normal,
                       ),
                     ),
                   ),
@@ -275,12 +289,10 @@ class _LightMeterAppState extends State<LightMeterApp> {
                       row['range']!,
                       textAlign: TextAlign.right,
                       style: TextStyle(
-                        color: highlight
-                            ? const Color(0xFF00FF88)
-                            : Colors.white,
-                        fontWeight: highlight
-                            ? FontWeight.w700
-                            : FontWeight.normal,
+                        color:
+                            highlight ? const Color(0xFF00FF88) : Colors.white,
+                        fontWeight:
+                            highlight ? FontWeight.w700 : FontWeight.normal,
                       ),
                     ),
                   ),

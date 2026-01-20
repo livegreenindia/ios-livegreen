@@ -8,12 +8,16 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import android.content.ComponentName
+import android.accessibilityservice.AccessibilityService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
 	private val CHANNEL = "livegreen/digital_wellbeing"
+	private val BLOCKER_CHANNEL = "livegreen/app_blocker"
+	private val BLOCKER_PREFS = "app_blocker"
 
 	override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
 		super.configureFlutterEngine(flutterEngine)
@@ -225,6 +229,118 @@ class MainActivity : FlutterActivity() {
 			}
 		}
 
+		// Screen Control / App Blocker channel
+		MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BLOCKER_CHANNEL).setMethodCallHandler { call, result ->
+			when (call.method) {
+				"checkAccessibilityPermission" -> {
+					try {
+						result.success(isAccessibilityServiceEnabled(this, AppBlockerService::class.java))
+					} catch (ex: Exception) {
+						result.success(false)
+					}
+				}
+				"requestAccessibilityPermission" -> {
+					try {
+						val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+						intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+						startActivity(intent)
+						result.success(true)
+					} catch (ex: Exception) {
+						result.error("ERR_INTENT", "Failed to open accessibility settings: ${ex.message}", null)
+					}
+				}
+				"updateQuietHours" -> {
+					try {
+						val args = call.arguments as? Map<*, *>
+						val morning = (args?.get("morning") as? Number)?.toInt() ?: 7 * 60
+						val evening = (args?.get("evening") as? Number)?.toInt() ?: 22 * 60
+						getSharedPreferences(BLOCKER_PREFS, Context.MODE_PRIVATE)
+							.edit()
+							.putInt("quiet_morning", morning)
+							.putInt("quiet_evening", evening)
+							.apply()
+						result.success(true)
+					} catch (ex: Exception) {
+						result.error("ERR_QUIET", "Failed to save quiet hours: ${ex.message}", null)
+					}
+				}
+				"updateUsage" -> {
+					try {
+						val args = call.arguments as? Map<*, *>
+						val pkg = (args?.get("package") as? String) ?: ""
+						val minutes = (args?.get("minutes") as? Number)?.toInt() ?: 0
+						if (pkg.isNotBlank()) {
+							getSharedPreferences(BLOCKER_PREFS, Context.MODE_PRIVATE)
+								.edit()
+								.putInt("usage_$pkg", minutes)
+								.apply()
+						}
+						result.success(true)
+					} catch (ex: Exception) {
+						result.error("ERR_USAGE", "Failed to save usage: ${ex.message}", null)
+					}
+				}
+				"updateLimits" -> {
+					try {
+						val raw = call.arguments as? Map<*, *>
+						val limits = mutableMapOf<String, Int>()
+						if (raw != null) {
+							for ((k, v) in raw) {
+								val pkg = k?.toString() ?: continue
+								val limit = (v as? Number)?.toInt() ?: continue
+								limits[pkg] = limit
+							}
+						}
+
+						val prefs = getSharedPreferences(BLOCKER_PREFS, Context.MODE_PRIVATE)
+						val editor = prefs.edit()
+						// hard limit is enabled when limits map is non-empty
+						editor.putBoolean("hard_limit_enabled", limits.isNotEmpty())
+						editor.putStringSet("tracked_packages", limits.keys)
+						for ((pkg, limit) in limits) {
+							editor.putInt("limit_$pkg", limit)
+						}
+						editor.apply()
+
+						result.success(true)
+					} catch (ex: Exception) {
+						result.error("ERR_LIMITS", "Failed to save limits: ${ex.message}", null)
+					}
+				}
+				"blockApp" -> {
+					try {
+						val args = call.arguments as? Map<*, *>
+						val pkg = (args?.get("package") as? String) ?: ""
+						if (pkg.isNotBlank()) {
+							val prefs = getSharedPreferences(BLOCKER_PREFS, Context.MODE_PRIVATE)
+							val current = prefs.getStringSet("manual_blocked_packages", emptySet())?.toMutableSet() ?: mutableSetOf()
+							current.add(pkg)
+							prefs.edit().putStringSet("manual_blocked_packages", current).apply()
+						}
+						result.success(true)
+					} catch (ex: Exception) {
+						result.error("ERR_BLOCK", "Failed to block package: ${ex.message}", null)
+					}
+				}
+				"unblockApp" -> {
+					try {
+						val args = call.arguments as? Map<*, *>
+						val pkg = (args?.get("package") as? String) ?: ""
+						if (pkg.isNotBlank()) {
+							val prefs = getSharedPreferences(BLOCKER_PREFS, Context.MODE_PRIVATE)
+							val current = prefs.getStringSet("manual_blocked_packages", emptySet())?.toMutableSet() ?: mutableSetOf()
+							current.remove(pkg)
+							prefs.edit().putStringSet("manual_blocked_packages", current).apply()
+						}
+						result.success(true)
+					} catch (ex: Exception) {
+						result.error("ERR_UNBLOCK", "Failed to unblock package: ${ex.message}", null)
+					}
+				}
+				else -> result.notImplemented()
+			}
+		}
+
 		// Samsung Health channel - minimal stubs. Replace TODOs with real Samsung Health SDK integration.
 		MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "livegreen/samsung_health").setMethodCallHandler { call, result ->
 			when (call.method) {
@@ -248,6 +364,15 @@ class MainActivity : FlutterActivity() {
 				else -> result.notImplemented()
 			}
 		}
+	}
+
+	private fun isAccessibilityServiceEnabled(context: Context, service: Class<out AccessibilityService>): Boolean {
+		val expected = ComponentName(context, service).flattenToString()
+		val enabled = Settings.Secure.getString(
+			context.contentResolver,
+			Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+		) ?: return false
+		return enabled.split(":").any { it.equals(expected, ignoreCase = true) }
 	}
 
 	/**
