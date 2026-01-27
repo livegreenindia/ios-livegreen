@@ -59,6 +59,38 @@
                 <data android:scheme="livegreen" android:host="auth" />
             </intent-filter>
             
+            <!-- Deep link for clubs: https://livegreen-bf838.web.app/clubs/... -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data 
+                    android:scheme="https"
+                    android:host="livegreen-bf838.web.app"
+                    android:pathPrefix="/clubs" />
+            </intent-filter>
+            
+            <!-- Deep link for clubs: http://livegreen-bf838.web.app/clubs/... -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data 
+                    android:scheme="http"
+                    android:host="livegreen-bf838.web.app"
+                    android:pathPrefix="/clubs" />
+            </intent-filter>
+            
+            <!-- Custom scheme fallback: livegreen://clubs/... -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data 
+                    android:scheme="livegreen"
+                    android:host="clubs" />
+            </intent-filter>
+            
             <!-- Health Connect permission request handler -->
             <intent-filter>
                 <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />

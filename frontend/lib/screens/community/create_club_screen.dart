@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
 import '../../models/club.dart';
 import '../../services/club_service.dart';
@@ -17,6 +19,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
   final _formKey = GlobalKey<FormState>();
   final _clubService = ClubService();
   final _imagePicker = ImagePicker();
+  final _auth = FirebaseAuth.instance;
 
   late TextEditingController _nameController;
   late TextEditingController _descriptionController;
@@ -88,10 +91,43 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
         desiredAccuracy: LocationAccuracy.high,
       );
 
-      setState(() {
-        _latitude = position.latitude;
-        _longitude = position.longitude;
-      });
+      // Reverse geocode to get place name
+      try {
+        List<Placemark> placemarks = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        
+        if (placemarks.isNotEmpty) {
+          final place = placemarks.first;
+          final locationParts = [
+            place.name,
+            place.locality,
+            place.administrativeArea,
+            place.country,
+          ].where((part) => part != null && part.isNotEmpty).toList();
+          
+          setState(() {
+            _latitude = position.latitude;
+            _longitude = position.longitude;
+            _locationController.text = locationParts.join(', ');
+          });
+        } else {
+          // No place name found, use coordinates
+          setState(() {
+            _latitude = position.latitude;
+            _longitude = position.longitude;
+            _locationController.text = 'Location: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
+          });
+        }
+      } catch (e) {
+        // If reverse geocoding fails, show coordinates
+        setState(() {
+          _latitude = position.latitude;
+          _longitude = position.longitude;
+          _locationController.text = 'Location: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
+        });
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Location captured')),
@@ -122,7 +158,8 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
         description: _descriptionController.text.trim(),
         category: _selectedCategory,
         location: _locationController.text.trim(),
-        creatorName: 'User', // Should get from Firebase Auth
+        creatorName: _auth.currentUser?.displayName ?? 'Anonymous',
+        creatorImageUrl: _auth.currentUser?.photoURL,
         latitude: _latitude,
         longitude: _longitude,
         tags: tags,
@@ -477,17 +514,6 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
             ),
           ],
         ),
-        if (_latitude != null && _longitude != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              'Location: $_latitude, $_longitude',
-              style: TextStyle(
-                fontSize: 12,
-                color: colorScheme.primary,
-              ),
-            ),
-          ),
       ],
     );
   }

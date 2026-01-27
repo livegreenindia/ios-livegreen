@@ -29,6 +29,11 @@ class PlaceSubmissionService {
     String? phoneNumber,
     String? website,
     String? imageUrl,
+    List<GeoPoint>? routePoints, // For GPX and drawn paths
+    double? distance,
+    double? elevationGain,
+    double? elevationLoss,
+    TrekDifficulty? difficulty,
   }) async {
     final user = _auth.currentUser;
     if (user == null) throw Exception('User not authenticated');
@@ -47,22 +52,28 @@ class PlaceSubmissionService {
       'phoneNumber': phoneNumber,
       'website': website,
       'imageUrl': imageUrl,
-      'distance': 0.0,
-      'estimatedTimeMinutes': 0,
-      'difficulty': TrekDifficulty.easy.name,
+      'distance': distance ?? 0.0,
+      'estimatedTimeMinutes': distance != null ? (distance / 1000 * 15).round() : 0,
+      'difficulty': (difficulty ?? TrekDifficulty.easy).name,
       'createdAt': now,
       'updatedAt': now,
       'createdBy': user.uid,
+      'submittedBy': user.uid, // Required by Firestore security rules
       'isPublic': false, // Not public until approved
       'isUserSubmitted': true,
       'approvalStatus': PlaceApprovalStatus.pending.name,
       'submitterName': user.displayName ?? user.email ?? 'Anonymous',
       'tags': [],
-      'routePoints': [],
+      'routePoints': routePoints?.map((p) => p.toMap()).toList() ?? [],
       'elevationProfile': [],
+      'elevationGain': elevationGain ?? 0.0,
+      'elevationLoss': elevationLoss ?? 0.0,
       'usersToday': 0,
       'rating': 0.0,
       'reviewCount': 0,
+      // Add endPoint for routes
+      if (routePoints != null && routePoints.isNotEmpty)
+        'endPoint': routePoints.last.toMap(),
     };
 
     // Add to pending places collection for admin review

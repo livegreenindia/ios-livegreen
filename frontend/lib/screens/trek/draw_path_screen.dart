@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../theme/app_theme.dart';
 import '../../models/trek.dart';
 import '../../services/trek_service.dart';
+import '../../services/place_submission_service.dart';
 import '../../services/location_tracking_service.dart';
 
 /// Draw Path Screen - allows users to draw custom routes on a map
@@ -19,7 +20,6 @@ class DrawPathScreen extends StatefulWidget {
 
 class _DrawPathScreenState extends State<DrawPathScreen> {
   final LocationTrackingService _locationService = LocationTrackingService();
-  final TrekService _trekService = TrekService();
   GoogleMapController? _mapController;
 
   // State
@@ -245,8 +245,6 @@ class _DrawPathScreenState extends State<DrawPathScreen> {
     setState(() => _isSaving = true);
 
     try {
-      final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
-      final now = DateTime.now();
       final distance = _calculateTotalDistance();
       
       // Convert LatLng to GeoPoint
@@ -256,34 +254,26 @@ class _DrawPathScreenState extends State<DrawPathScreen> {
       )).toList();
 
       final startPoint = routePoints.first;
-      final endPoint = routePoints.last;
-      final location = TrekLocation.fromGeoPoint(startPoint);
 
-      final trek = Trek(
-        id: '',
+      // Import PlaceSubmissionService at the top of the file
+      final placeSubmissionService = PlaceSubmissionService();
+      
+      // Submit to pendingPlaces for admin approval
+      await placeSubmissionService.submitPlace(
         title: result['title'] as String,
         description: result['description'] as String,
-        distance: distance,
-        estimatedTimeMinutes: _estimateTime(distance),
-        difficulty: result['difficulty'] as TrekDifficulty,
         category: result['category'] as TrekCategory,
+        latitude: startPoint.latitude,
+        longitude: startPoint.longitude,
         routePoints: routePoints,
-        startPoint: startPoint,
-        endPoint: endPoint,
-        location: location,
-        createdAt: now,
-        updatedAt: now,
-        createdBy: userId,
-        isPublic: true,
-        tags: [],
+        distance: distance,
+        difficulty: result['difficulty'] as TrekDifficulty,
       );
-
-      await _trekService.createTrek(trek);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Path saved successfully!'),
+            content: Text('Path submitted for admin approval!'),
             backgroundColor: AppColors.success,
           ),
         );

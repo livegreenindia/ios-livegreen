@@ -79,7 +79,18 @@ class LocationTrackingService {
   Future<LocationPermission> checkAndRequestPermission() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      throw LocationServiceException('Location services are disabled');
+      // Prompt user to enable location services in device settings
+      final opened = await Geolocator.openLocationSettings();
+      if (!opened) {
+        throw LocationServiceException(
+          'Location services are disabled. Please enable in device settings.'
+        );
+      }
+      // After user enables in settings, check again
+      serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw LocationServiceException('Location services are still disabled');
+      }
     }
     
     LocationPermission permission = await Geolocator.checkPermission();
@@ -92,6 +103,8 @@ class LocationTrackingService {
     }
     
     if (permission == LocationPermission.deniedForever) {
+      // Open app settings for permission override
+      await Geolocator.openAppSettings();
       throw LocationPermissionException(
         'Location permissions are permanently denied. Please enable in settings.'
       );

@@ -58,10 +58,12 @@ class OSMTrekService {
   node["leisure"="sports_centre"](around:$radiusMeters,$latitude,$longitude);
   node["leisure"="sports_club"](around:$radiusMeters,$latitude,$longitude);
   node["leisure"="swimming_pool"](around:$radiusMeters,$latitude,$longitude);
+  node["leisure"="swimming_area"](around:$radiusMeters,$latitude,$longitude);
   node["leisure"="fitness_station"](around:$radiusMeters,$latitude,$longitude);
   node["amenity"="gym"](around:$radiusMeters,$latitude,$longitude);
   node["amenity"="arts_centre"](around:$radiusMeters,$latitude,$longitude);
   node["amenity"="community_centre"](around:$radiusMeters,$latitude,$longitude);
+  node["amenity"="social_facility"](around:$radiusMeters,$latitude,$longitude);
   node["sport"="yoga"](around:$radiusMeters,$latitude,$longitude);
   node["sport"="fitness"](around:$radiusMeters,$latitude,$longitude);
   node["sport"="swimming"](around:$radiusMeters,$latitude,$longitude);
@@ -69,16 +71,27 @@ class OSMTrekService {
   node["club"="sport"](around:$radiusMeters,$latitude,$longitude);
   way["leisure"="fitness_centre"](around:$radiusMeters,$latitude,$longitude);
   way["leisure"="sports_centre"](around:$radiusMeters,$latitude,$longitude);
+  way["leisure"="sports_club"](around:$radiusMeters,$latitude,$longitude);
   way["leisure"="swimming_pool"](around:$radiusMeters,$latitude,$longitude);
   way["amenity"="gym"](around:$radiusMeters,$latitude,$longitude);
   way["amenity"="arts_centre"](around:$radiusMeters,$latitude,$longitude);
+  way["sport"="swimming"](around:$radiusMeters,$latitude,$longitude);
 );
-out center;
+out geom;
 ''';
 
     try {
       // Pass null to let _determineCategory assign the right fitness sub-category
       final treks = await _executeQuery(query, latitude, longitude, null);
+      debugPrint('OSM: Raw fitness query returned ${treks.length} locations');
+      
+      // Debug: print categories
+      final categoryCounts = <TrekCategory, int>{};
+      for (final trek in treks) {
+        categoryCounts[trek.category] = (categoryCounts[trek.category] ?? 0) + 1;
+      }
+      debugPrint('OSM: Category breakdown: $categoryCounts');
+      
       _fitnessCache[cacheKey] = treks;
       _lastFetchTime = DateTime.now();
       _lastFetchLocation = cacheKey;
@@ -86,6 +99,7 @@ out center;
       var result = treks;
       if (specificCategory != null) {
         result = treks.where((t) => t.category == specificCategory).toList();
+        debugPrint('OSM: Filtered to ${result.length} ${specificCategory.name} locations');
       }
       debugPrint('OSM: Fetched ${result.length} fitness locations (total cached: ${treks.length})');
       return result;
@@ -125,7 +139,7 @@ out center;
   way["tourism"="attraction"](around:$radiusMeters,$latitude,$longitude);
   way["leisure"="garden"](around:$radiusMeters,$latitude,$longitude);
 );
-out center;
+out geom;
 ''';
 
     try {
@@ -163,7 +177,7 @@ out center;
     }
 
     final radiusMeters = (effectiveRadius * 1000).toInt();
-    // Use 'out center' for faster results - we don't need full geometry for listing
+    // Use 'out geom' to get full route geometry instead of just center points
     final query = '''
 [out:json][timeout:15];
 (
@@ -180,7 +194,7 @@ out center;
   relation["route"="hiking"](around:$radiusMeters,$latitude,$longitude);
   relation["route"="foot"](around:$radiusMeters,$latitude,$longitude);
 );
-out center;
+out geom;
 ''';
 
     try {

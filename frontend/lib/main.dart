@@ -11,6 +11,7 @@ import 'firebase_options.dart';
 import 'services/auth_service.dart';
 import 'services/session_manager.dart';
 import 'services/notification_service.dart';
+import 'services/deep_link_service.dart';
 import 'services/location_tracking_service.dart';
 import 'screens/splash_wrapper.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -69,6 +70,9 @@ Future<void> main() async {
   // login screen when the session expires.
   final navigatorKey = GlobalKey<NavigatorState>();
   await SessionManager.instance.init(navigatorKey: navigatorKey);
+
+  // Initialize deep link service for club sharing
+  await DeepLinkService.initialize(navigatorKey);
 
   runApp(LiveGreenApp(navigatorKey: navigatorKey));
 }

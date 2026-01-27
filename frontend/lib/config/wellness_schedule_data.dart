@@ -130,19 +130,6 @@ class WellnessScheduleData {
             ],
           ),
           WellnessActivity(
-            title: 'Keep less distractions (No shorts and Reels)',
-            category: 'productivity',
-            info:
-                'Minimizing distractions enhances focus, improves work quality, and reduces mental fatigue.',
-            youtubeUrl:
-                'https://www.youtube.com/results?search_query=deep+work+focus',
-            tips: [
-              'Use website blockers',
-              'Silence notifications',
-              'Work in 90-minute focused blocks',
-            ],
-          ),
-          WellnessActivity(
             title: 'Check light intensity and maintain above 500 lux',
             category: 'health',
             info:
@@ -275,7 +262,7 @@ class WellnessScheduleData {
           ),
           WellnessActivity(
             title:
-                'Check light intensity, use warm color (amber) Led light (100-200 lux)',
+                'use warm color (amber) Led light (100-200 lux)',
             category: 'sleep_hygiene',
             info:
                 'Warm, dim lighting in evening supports melatonin production and prepares body for sleep.',
@@ -460,14 +447,7 @@ class WellnessScheduleData {
             youtubeUrl:
                 'https://www.youtube.com/results?search_query=student+nutrition+brain+food',
           ),
-          WellnessActivity(
-            title: 'Keep less distractions (No shorts and Reels)',
-            category: 'productivity',
-            info:
-                'Focused study sessions improve learning outcomes and academic performance.',
-            youtubeUrl:
-                'https://www.youtube.com/results?search_query=study+focus+techniques',
-          ),
+          
           WellnessActivity(
             title: 'Check light intensity and maintain above 500 lux',
             category: 'health',
@@ -665,14 +645,7 @@ class WellnessScheduleData {
             youtubeUrl:
                 'https://www.youtube.com/results?search_query=eye+care+exercises',
           ),
-          WellnessActivity(
-            title: 'Keep less distractions (No shorts and Reels)',
-            category: 'digital_wellness',
-            info:
-                'Focused work time makes household tasks more efficient and less stressful.',
-            youtubeUrl:
-                'https://www.youtube.com/results?search_query=mindful+homemaking',
-          ),
+          
         ],
         TimeSlot.afternoon: [
           WellnessActivity(
@@ -841,14 +814,7 @@ class WellnessScheduleData {
             youtubeUrl:
                 'https://www.youtube.com/results?search_query=senior+eye+health',
           ),
-          WellnessActivity(
-            title: 'Keep less distractions (No shorts and Reels)',
-            category: 'digital_wellness',
-            info:
-                'Mindful technology use supports mental clarity and reduces stress.',
-            youtubeUrl:
-                'https://www.youtube.com/results?search_query=senior+digital+wellness',
-          ),
+          
         ],
         TimeSlot.afternoon: [
           WellnessActivity(

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LiveGreen - Join the Community</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .logo {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        p {
+            color: #666;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        .button {
+            display: inline-block;
+            background: #4CAF50;
+            color: white;
+            padding: 15px 40px;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin: 10px;
+        }
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(76, 175, 80, 0.3);
+        }
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #4CAF50;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        #status {
+            margin-top: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🌱</div>
+        <h1>Welcome to LiveGreen</h1>
+        <p id="message">Opening the app...</p>
+        <div class="spinner" id="spinner"></div>
+        <div id="fallback" style="display:none;">
+            <p>Don't have the app yet?</p>
+            <a href="https://play.google.com/store/apps/details?id=com.livegreen.app" class="button">
+                Download from Play Store
+            </a>
+        </div>
+        <p id="status"></p>
+    </div>
+
+    <script>
+        // Get club ID from URL path
+        const path = window.location.pathname;
+        const match = path.match(/\/clubs\/([^\/]+)/);
+        const clubId = match ? match[1] : null;
+
+        if (clubId) {
+            // Try to open the app with deep link
+            const appScheme = `livegreen://clubs/${clubId}`;
+            const playStore = 'https://play.google.com/store/apps/details?id=com.livegreen.app';
+            
+            document.getElementById('message').textContent = 'Opening club in LiveGreen...';
+            
+            // Attempt to open app
+            window.location.href = appScheme;
+            
+            // Show fallback after 2 seconds if app didn't open
+            setTimeout(() => {
+                document.getElementById('spinner').style.display = 'none';
+                document.getElementById('fallback').style.display = 'block';
+                document.getElementById('message').textContent = 'App not installed?';
+                document.getElementById('status').textContent = `Club ID: ${clubId}`;
+            }, 2000);
+            
+            // Auto-redirect to Play Store after 4 seconds
+            setTimeout(() => {
+                window.location.href = playStore;
+            }, 4000);
+        } else {
+            // No club ID, just show download link
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('message').textContent = 'Join our wellness community';
+            document.getElementById('fallback').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:image_picker/image_picker.dart';
 import 'dart:async';
 import 'dart:io';
 import '../../theme/app_theme.dart';
@@ -163,23 +164,33 @@ class _TrekListScreenState extends State<TrekListScreen>
       final lng = _currentPosition!.longitude;
       switch (_tabController.index) {
         case _tabFitness:
-          osmTreks = await _osmTrekService.fetchFitnessLocations(
+          // Try Google Places first for fitness locations
+          debugPrint('TrekListScreen: Fetching fitness from Google Places...');
+          googleTreks = await _googlePlacesService.fetchFitnessPlaces(
             latitude: lat,
             longitude: lng,
             radiusKm: 15,
-            specificCategory: _selectedCategory,
-            forceRefresh: forceRefresh,
           );
-          debugPrint('TrekListScreen: Fetched ${osmTreks.length} fitness locations');
+          debugPrint('TrekListScreen: Google Places returned ${googleTreks.length} fitness locations');
+          
+          // If Google returns few or no results, fall back to OSM
+          if (googleTreks.length < 5) {
+            debugPrint('TrekListScreen: Falling back to OSM for additional fitness locations...');
+            osmTreks = await _osmTrekService.fetchFitnessLocations(
+              latitude: lat,
+              longitude: lng,
+              radiusKm: 15,
+              specificCategory: _selectedCategory,
+              forceRefresh: forceRefresh,
+            );
+            debugPrint('TrekListScreen: OSM returned ${osmTreks.length} fitness locations');
+          }
           break;
         case _tabPOI:
-          osmTreks = await _osmTrekService.fetchPOILocations(
-            latitude: lat,
-            longitude: lng,
-            radiusKm: 25,
-            forceRefresh: forceRefresh,
-          );
-          debugPrint('TrekListScreen: Fetched ${osmTreks.length} POI locations');
+          // POI tab shows ONLY user-submitted places (approved by admin)
+          // NO Google Places API or OSM data - only Firebase data from user submissions
+          debugPrint('TrekListScreen: POI tab uses only user-submitted content (Submit Place, Import GPX, Draw Path)');
+          // osmTreks remains empty - Firebase streaming will provide user-submitted POI
           break;
         case _tabPaths:
         default:
@@ -198,20 +209,25 @@ class _TrekListScreenState extends State<TrekListScreen>
             radiusKm: 50,
           );
           debugPrint('TrekListScreen: Fetched ${googleTreks.length} Google Places trekking points');
-          // Merge and deduplicate by id
-          final allTreks = <String, Trek>{};
-          for (final t in osmTreks) {
-            allTreks[t.id] = t;
-          }
-          for (final t in googleTreks) {
-            allTreks[t.id] = t;
-          }
-          osmTreks = allTreks.values.toList();
           break;
       }
+      
+      // Merge Google and OSM results, removing duplicates by id
+      final allTreks = <String, Trek>{};
+      // Add Google results first (priority)
+      for (final t in googleTreks) {
+        allTreks[t.id] = t;
+      }
+      // Add OSM results (will not overwrite Google results with same id)
+      for (final t in osmTreks) {
+        allTreks[t.id] = t;
+      }
+      final mergedTreks = allTreks.values.toList();
+      debugPrint('TrekListScreen: Total ${mergedTreks.length} locations after merge (${googleTreks.length} from Google, ${osmTreks.length} from OSM)');
+      
       if (mounted) {
         setState(() {
-          _osmTreks = osmTreks;
+          _osmTreks = mergedTreks;
           _isLoadingOSM = false;
         });
         _updateMapMarkers();
@@ -229,15 +245,24 @@ class _TrekListScreenState extends State<TrekListScreen>
     if (_currentPosition == null) return;
     
     _nearbyTreksSubscription?.cancel();
+    
+    // Determine category for streaming
+    TrekCategory? streamCategory;
+    if (_tabController.index == _tabPOI) {
+      streamCategory = TrekCategory.pointOfInterest;
+    } else if (_tabController.index == _tabFitness) {
+      // For fitness tab, use specific category if selected, otherwise get all fitness
+      streamCategory = _selectedCategory;
+    } else {
+      // For paths tab, use selected category
+      streamCategory = _selectedCategory;
+    }
+    
     _nearbyTreksSubscription = _trekService.streamTreksNearLocation(
       latitude: _currentPosition!.latitude,
       longitude: _currentPosition!.longitude,
       radiusKm: _searchRadiusKm,
-      category: _tabController.index == _tabPOI 
-          ? TrekCategory.pointOfInterest 
-          : _tabController.index == _tabFitness 
-              ? TrekCategory.fitnessCenter 
-              : _selectedCategory,
+      category: streamCategory,
       limit: 10,
     ).listen((treks) {
       if (mounted) {
@@ -551,13 +576,26 @@ class _TrekListScreenState extends State<TrekListScreen>
   Future<void> _importGPX() async {
     try {
       final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['gpx'],
+        type: FileType.any,
+        allowMultiple: false,
       );
 
       if (result == null || result.files.isEmpty) return;
 
-      final file = File(result.files.first.path!);
+      final filePath = result.files.first.path;
+      if (filePath == null) return;
+      
+      // Check if file has .gpx extension
+      if (!filePath.toLowerCase().endsWith('.gpx')) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please select a GPX file')),
+          );
+        }
+        return;
+      }
+
+      final file = File(filePath);
       final gpxContent = await file.readAsString();
       final parseResult = GPXParser.parseGPX(gpxContent);
 
@@ -593,12 +631,28 @@ class _TrekListScreenState extends State<TrekListScreen>
 
       if (confirmed == true) {
         final trek = parseResult.toTrek(id: '');
-        await _trekService.createTrek(trek);
-        _loadTreks();
+        
+        // Submit to pendingPlaces for admin approval
+        await _placeSubmissionService.submitPlace(
+          title: trek.title,
+          description: trek.description,
+          category: trek.category,
+          latitude: trek.startPoint!.latitude,
+          longitude: trek.startPoint!.longitude,
+          imageUrl: trek.imageUrl,
+          routePoints: trek.routePoints,
+          distance: trek.distance,
+          elevationGain: trek.elevationGain,
+          elevationLoss: trek.elevationLoss,
+          difficulty: trek.difficulty,
+        );
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('GPX imported successfully!')),
+            const SnackBar(
+              content: Text('GPX imported and submitted for admin approval!'),
+              backgroundColor: AppColors.success,
+            ),
           );
         }
       }
@@ -642,6 +696,8 @@ class _TrekListScreenState extends State<TrekListScreen>
     bool useCurrentLocation = true;
     double? customLat;
     double? customLng;
+    File? selectedImage;
+    final imagePicker = ImagePicker();
 
     showModalBottomSheet(
       context: context,
@@ -741,6 +797,87 @@ class _TrekListScreenState extends State<TrekListScreen>
                         ),
                         const SizedBox(height: AppSpacing.md),
                         
+                        // Photo upload
+                        GestureDetector(
+                          onTap: () async {
+                            try {
+                              final pickedFile = await imagePicker.pickImage(
+                                source: ImageSource.gallery,
+                                maxWidth: 1920,
+                                maxHeight: 1080,
+                                imageQuality: 85,
+                              );
+                              if (pickedFile != null) {
+                                setSheetState(() {
+                                  selectedImage = File(pickedFile.path);
+                                });
+                              }
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Error picking image: $e')),
+                              );
+                            }
+                          },
+                          child: Container(
+                            height: 180,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: Colors.grey.shade300,
+                                width: 2,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: selectedImage != null
+                                ? Stack(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: Image.file(
+                                          selectedImage!,
+                                          fit: BoxFit.cover,
+                                          width: double.infinity,
+                                        ),
+                                      ),
+                                      Positioned(
+                                        top: 8,
+                                        right: 8,
+                                        child: IconButton(
+                                          onPressed: () => setSheetState(() => selectedImage = null),
+                                          icon: const Icon(Icons.close),
+                                          style: IconButton.styleFrom(
+                                            backgroundColor: Colors.black54,
+                                            foregroundColor: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.add_photo_alternate,
+                                        size: 48,
+                                        color: Colors.grey.shade400,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Add Photo (Optional)',
+                                        style: TextStyle(color: Colors.grey.shade600),
+                                      ),
+                                      Text(
+                                        'Tap to select from gallery',
+                                        style: TextStyle(
+                                          color: Colors.grey.shade500,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        
                         // Description
                         TextFormField(
                           controller: descriptionController,
@@ -837,6 +974,7 @@ class _TrekListScreenState extends State<TrekListScreen>
                                     ? null : phoneController.text.trim(),
                                 website: websiteController.text.trim().isEmpty 
                                     ? null : websiteController.text.trim(),
+                                imageUrl: selectedImage?.path, // Store local path for now, admin can upload to storage
                               );
                               
                               if (context.mounted) {
@@ -1167,11 +1305,11 @@ class _TrekListScreenState extends State<TrekListScreen>
       
       switch (_tabController.index) {
         case _tabPOI:
-          title = 'No places found nearby';
+          title = 'No community places yet';
           subtitle = _searchQuery.isNotEmpty
               ? 'No results for "$_searchQuery"'
-              : 'We\'re searching for viewpoints, temples, museums and attractions in your area';
-          icon = Icons.place_outlined;
+              : 'POI shows community-submitted places. Use "Submit Place", "Import GPX", or "Draw Path" to add locations. All submissions require admin approval.';
+          icon = Icons.explore_outlined;
           break;
         case _tabFitness:
           title = 'No fitness centers found';

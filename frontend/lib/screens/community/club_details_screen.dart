@@ -21,7 +21,8 @@ class _ClubDetailsScreenState extends State<ClubDetailsScreen> with SingleTicker
   void _shareClub() {
     if (_club == null) return;
     
-    final clubLink = 'https://livegreen.app/clubs/${_club!.id}';
+    final clubLink = 'https://livegreen-bf838.web.app/clubs/${_club!.id}';
+    
     final shareText = '''
 🌱 Join ${_club!.name}!
 
@@ -92,6 +93,13 @@ $clubLink
       final activities = await _clubService.getClubActivities(widget.clubId);
       final messages = await _clubService.getMessages(widget.clubId);
       final currentUserId = _auth.currentUser?.uid;
+
+      // Auto-migrate club members if needed (one-time migration)
+      if (club != null) {
+        _clubService.migrateClubMembers(widget.clubId).catchError((e) {
+          print('Migration not needed or failed: $e');
+        });
+      }
 
       setState(() {
         _club = club;
@@ -206,182 +214,148 @@ $clubLink
 
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: Text(_club!.name),
         elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.share),
+            icon: const Icon(Icons.share_outlined),
             onPressed: () => _shareClub(),
             tooltip: 'Share Club',
           ),
+          if (_isMember)
+            IconButton(
+              icon: const Icon(Icons.logout_outlined),
+              onPressed: _leaveClub,
+              tooltip: 'Leave Club',
+            ),
         ],
       ),
-      body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) {
-          return [
-            SliverAppBar(
-              expandedHeight: 200,
-              floating: false,
-              pinned: true,
-              backgroundColor: colorScheme.surface,
-              flexibleSpace: FlexibleSpaceBar(
-                background: _club!.imageUrl != null
-                    ? Image.network(
-                        _club!.imageUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            color: colorScheme.surfaceVariant,
-                            child: Icon(
-                              Icons.image_not_supported,
-                              color: colorScheme.outline,
-                            ),
-                          );
-                        },
-                      )
-                    : Container(
-                        color: colorScheme.surfaceVariant,
-                        child: Icon(
-                          Icons.groups_2_outlined,
-                          size: 64,
+      body: Column(
+        children: [
+          // Compact Club Info Card
+          Container(
+            margin: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(16.0),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceVariant.withOpacity(0.3),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: colorScheme.outline.withOpacity(0.2),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                // Club Image/Icon
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceVariant,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: _club!.imageUrl != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            _club!.imageUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Icon(
+                                Icons.groups_2,
+                                size: 32,
+                                color: colorScheme.outline,
+                              );
+                            },
+                          ),
+                        )
+                      : Icon(
+                          Icons.groups_2,
+                          size: 32,
                           color: colorScheme.outline,
                         ),
-                      ),
-              ),
-            ),
-          ];
-        },
-        body: Column(
-          children: [
-            // Club Header Info
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Title and Category
-                  Row(
+                ),
+                const SizedBox(width: 12),
+                // Club Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _club!.name,
-                              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                      Text(
+                        _club!.name,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
                             ),
-                            const SizedBox(height: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: colorScheme.primary.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                _club!.categoryName,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: colorScheme.primary,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'By ${_club!.creatorName}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: colorScheme.outline,
+                              fontSize: 11,
                             ),
-                          ],
-                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${_club!.memberCount} members • ${_club!.activityCount} activities',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-
-                  // Description
-                  Text(
-                    _club!.description,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Stats
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildStatItem(
-                        context,
-                        Icons.people,
-                        _club!.memberCount.toString(),
-                        'Members',
+                ),
+                // Join/Leave Button
+                if (!_isMember)
+                  OutlinedButton(
+                    onPressed: _isJoinLoading ? null : _joinClub,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
                       ),
-                      _buildStatItem(
-                        context,
-                        Icons.article,
-                        _club!.activityCount.toString(),
-                        'Activities',
-                      ),
-                      _buildStatItem(
-                        context,
-                        Icons.calendar_today,
-                        _club!.createdAt.year.toString(),
-                        'Founded',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Join/Leave Button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _isJoinLoading
-                          ? null
-                          : (_isMember ? _leaveClub : _joinClub),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: _isJoinLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text(_isMember ? 'Leave Club' : 'Join Club'),
                     ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Tabs
-            TabBar(
-              controller: _tabController,
-              tabs: const [
-                Tab(text: 'About'),
-                Tab(text: 'Events'),
-                Tab(text: 'Messages'),
-                Tab(text: 'Members'),
+                    child: _isJoinLoading
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Join'),
+                  )
+                else
+                  Icon(Icons.check_circle, color: colorScheme.primary, size: 24),
               ],
             ),
+          ),
 
-            // Tab Content
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildAboutTab(),
-                  _buildEventsTab(),
-                  _buildMessagesTab(),
-                  _buildMembersTab(),
-                ],
-              ),
+          // Tabs
+          TabBar(
+            controller: _tabController,
+            labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            unselectedLabelStyle: const TextStyle(fontSize: 12),
+            tabs: const [
+              Tab(icon: Icon(Icons.info_outline, size: 20), text: 'Info'),
+              Tab(icon: Icon(Icons.event_outlined, size: 20), text: 'Events'),
+              Tab(icon: Icon(Icons.chat_bubble_outline, size: 20), text: 'Chat'),
+              Tab(icon: Icon(Icons.people_outline, size: 20), text: 'Members'),
+            ],
+          ),
+
+          // Tab Content
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildAboutTab(),
+                _buildEventsTab(),
+                _buildMessagesTab(),
+                _buildMembersTab(),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
       floatingActionButton: _isMember && _tabController.index == 1
           ? FloatingActionButton.extended(
@@ -673,14 +647,23 @@ $clubLink
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.lock,
-              size: 64,
-              color: Theme.of(context).colorScheme.outline,
+              Icons.lock_outline,
+              size: 72,
+              color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
             ),
             const SizedBox(height: 16),
             Text(
               'Join the club to chat',
-              style: Theme.of(context).textTheme.titleMedium,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Connect with other members',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.outline,
+              ),
             ),
           ],
         ),
@@ -693,13 +676,33 @@ $clubLink
         Expanded(
           child: _messages.isEmpty
               ? Center(
-                  child: Text(
-                    'No messages yet. Start the conversation!',
-                    style: Theme.of(context).textTheme.bodyMedium,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.chat_bubble_outline,
+                        size: 64,
+                        color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No messages yet',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Start the conversation!',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                      ),
+                    ],
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.all(16.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                   reverse: true,
                   itemCount: _messages.length,
                   itemBuilder: (context, index) {
@@ -711,39 +714,67 @@ $clubLink
         ),
         // Message input
         Container(
-          padding: const EdgeInsets.all(12.0),
+          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
           decoration: BoxDecoration(
-            border: Border(
-              top: BorderSide(
-                color: Theme.of(context).colorScheme.outline,
-                width: 0.5,
-              ),
-            ),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _messageController,
-                  decoration: InputDecoration(
-                    hintText: 'Type a message...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  ),
-                  maxLines: null,
-                ),
-              ),
-              const SizedBox(width: 8),
-              CircleAvatar(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                child: IconButton(
-                  icon: const Icon(Icons.send, color: Colors.white),
-                  onPressed: _sendMessage,
-                ),
+            color: Theme.of(context).colorScheme.surface,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                offset: const Offset(0, -2),
+                blurRadius: 6,
               ),
             ],
+          ),
+          child: SafeArea(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: TextField(
+                      controller: _messageController,
+                      decoration: InputDecoration(
+                        hintText: 'Type a message...',
+                        hintStyle: TextStyle(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                      ),
+                      maxLines: 4,
+                      minLines: 1,
+                      textCapitalization: TextCapitalization.sentences,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Material(
+                  color: Theme.of(context).colorScheme.primary,
+                  borderRadius: BorderRadius.circular(24),
+                  child: InkWell(
+                    onTap: _sendMessage,
+                    borderRadius: BorderRadius.circular(24),
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      alignment: Alignment.center,
+                      child: const Icon(
+                        Icons.send_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -753,61 +784,98 @@ $clubLink
   Widget _buildMessageBubble(ClubMessage message, bool isCurrentUser) {
     final colorScheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.only(bottom: 12.0),
       child: Row(
         mainAxisAlignment: isCurrentUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!isCurrentUser) ...[
             CircleAvatar(
               backgroundImage: message.userImage != null
                   ? NetworkImage(message.userImage!)
                   : null,
-              radius: 16,
+              radius: 18,
+              backgroundColor: colorScheme.primaryContainer,
               child: message.userImage == null
-                  ? Text(message.userName[0].toUpperCase())
+                  ? Text(
+                      message.userName[0].toUpperCase(),
+                      style: TextStyle(
+                        color: colorScheme.onPrimaryContainer,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    )
                   : null,
             ),
             const SizedBox(width: 8),
           ],
           Flexible(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: isCurrentUser
-                    ? colorScheme.primary
-                    : colorScheme.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: !isCurrentUser
-                    ? Border.all(color: colorScheme.outline.withOpacity(0.3))
-                    : null,
-              ),
-              child: Column(
-                crossAxisAlignment:
-                    isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                children: [
-                  if (!isCurrentUser)
-                    Text(
+            child: Column(
+              crossAxisAlignment:
+                  isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                if (!isCurrentUser)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, bottom: 4),
+                    child: Text(
                       message.userName,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                  ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isCurrentUser
+                        ? colorScheme.primary
+                        : colorScheme.surfaceVariant,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(isCurrentUser ? 18 : 4),
+                      topRight: Radius.circular(isCurrentUser ? 4 : 18),
+                      bottomLeft: const Radius.circular(18),
+                      bottomRight: const Radius.circular(18),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        offset: const Offset(0, 1),
+                        blurRadius: 3,
                       ),
-                    ),
-                  Text(
-                    message.content,
-                    style: TextStyle(
-                      color: isCurrentUser ? Colors.white : null,
-                    ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _formatMessageTime(message.timestamp),
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      fontSize: 10,
-                      color: isCurrentUser ? Colors.white70 : null,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        message.content,
+                        style: TextStyle(
+                          color: isCurrentUser
+                              ? Colors.white
+                              : colorScheme.onSurfaceVariant,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _formatMessageTime(message.timestamp),
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  fontSize: 11,
+                                  color: isCurrentUser
+                                      ? Colors.white.withOpacity(0.7)
+                                      : colorScheme.outline,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
           if (isCurrentUser) ...[
@@ -816,9 +884,17 @@ $clubLink
               backgroundImage: _auth.currentUser?.photoURL != null
                   ? NetworkImage(_auth.currentUser!.photoURL!)
                   : null,
-              radius: 16,
+              radius: 18,
+              backgroundColor: colorScheme.primaryContainer,
               child: _auth.currentUser?.photoURL == null
-                  ? Text(_auth.currentUser?.displayName?[0].toUpperCase() ?? 'U')
+                  ? Text(
+                      _auth.currentUser?.displayName?[0].toUpperCase() ?? 'U',
+                      style: TextStyle(
+                        color: colorScheme.onPrimaryContainer,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    )
                   : null,
             ),
           ],

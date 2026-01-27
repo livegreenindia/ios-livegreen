@@ -5,10 +5,12 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../theme/app_theme.dart';
 import '../../models/trek.dart';
 import '../../services/trek_service.dart';
 import '../../services/location_tracking_service.dart';
+import '../../services/routing_service.dart';
 
 /// Path Tracking Screen for recording treks
 class PathTrackingScreen extends StatefulWidget {
@@ -24,6 +26,7 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
     with WidgetsBindingObserver {
   final LocationTrackingService _locationService = LocationTrackingService();
   final TrekService _trekService = TrekService();
+  final RoutingService _routingService = RoutingService();
   GoogleMapController? _mapController;
 
   // State
@@ -32,7 +35,8 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
   bool _isPaused = false;
   String? _error;
   Position? _currentPosition;
-  MapType _mapType = MapType.satellite;
+  MapType _mapType = MapType.terrain;
+  Trek? _trekWithRoute; // Trek with fetched route
 
   // Tracking data
   final List<LatLng> _recordedPath = [];
@@ -45,8 +49,9 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
   @override
   void initState() {
     super.initState();
+    debugPrint('PathTrackingScreen: trek=${widget.trek?.title}, routePoints=${widget.trek?.routePoints.length}');
     WidgetsBinding.instance.addObserver(this);
-    _initializeLocation();
+    _initializeLocation(); // This will fetch the route after location is ready
   }
 
   @override
@@ -87,6 +92,12 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
             16,
           ),
         );
+        
+        // NOW fetch the route after we have the current position
+        // Always fetch navigation route for better path display
+        if (widget.trek != null) {
+          _fetchTrekRoute();
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -95,6 +106,93 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
           _isInitializing = false;
         });
       }
+    }
+  }
+
+  /// Fetch the actual route between current location and trek destination
+  Future<void> _fetchTrekRoute() async {
+    if (widget.trek == null || _currentPosition == null) return;
+    
+    try {
+      debugPrint('=== ROUTING: Starting route fetch ===');
+      debugPrint('Current location: ${_currentPosition!.latitude}, ${_currentPosition!.longitude}');
+      debugPrint('Trek: ${widget.trek!.title}');
+      
+      final startPoint = GeoPoint(
+        latitude: _currentPosition!.latitude,
+        longitude: _currentPosition!.longitude,
+      );
+      
+      // Use trek's start point as destination (or calculate a good destination)
+      GeoPoint? endPoint;
+      if (widget.trek!.startPoint != null) {
+        endPoint = widget.trek!.startPoint;
+        debugPrint('Using startPoint as destination: ${endPoint!.latitude}, ${endPoint!.longitude}');
+      } else if (widget.trek!.location != null) {
+        endPoint = widget.trek!.location!.geopoint;
+        debugPrint('Using location as destination: ${endPoint.latitude}, ${endPoint.longitude}');
+      }
+      
+      if (endPoint == null) {
+        debugPrint('=== ROUTING: No destination point available ===');
+        _trekWithRoute = widget.trek;
+        return;
+      }
+
+      // Fetch the route
+      debugPrint('=== ROUTING: Calling routing service ===');
+      final routePoints = await _routingService.getRouteFromPoints(startPoint, endPoint);
+      
+      debugPrint('=== ROUTING: Route fetched with ${routePoints.length} points ===');
+
+      if (mounted) {
+        setState(() {
+          debugPrint('=== ROUTING: Updating trek with route ===');
+          // Create a new trek with the fetched route points
+          _trekWithRoute = Trek(
+            id: widget.trek!.id,
+            title: widget.trek!.title,
+            description: widget.trek!.description,
+            category: widget.trek!.category,
+            difficulty: widget.trek!.difficulty,
+            distance: widget.trek!.distance,
+            estimatedTimeMinutes: widget.trek!.estimatedTimeMinutes,
+            imageUrl: widget.trek!.imageUrl,
+            elevationProfile: widget.trek!.elevationProfile,
+            elevationGain: widget.trek!.elevationGain,
+            elevationLoss: widget.trek!.elevationLoss,
+            minElevation: widget.trek!.minElevation,
+            maxElevation: widget.trek!.maxElevation,
+            routePoints: routePoints, // Use fetched route
+            startPoint: widget.trek!.startPoint,
+            endPoint: widget.trek!.endPoint,
+            location: widget.trek!.location,
+            createdAt: widget.trek!.createdAt,
+            updatedAt: widget.trek!.updatedAt,
+            usersToday: widget.trek!.usersToday,
+            rating: widget.trek!.rating,
+            reviewCount: widget.trek!.reviewCount,
+            isPublic: widget.trek!.isPublic,
+            tags: widget.trek!.tags,
+          );
+          debugPrint('=== ROUTING: Trek updated, polylines should rebuild ===');
+        });
+
+        // Auto-fit map to show the entire route like Google Maps
+        Future.delayed(const Duration(milliseconds: 300), () {
+          final bounds = _getRouteBounds();
+          if (bounds != null && _mapController != null) {
+            _mapController!.animateCamera(
+              CameraUpdate.newLatLngBounds(bounds, 100), // 100px padding
+            );
+            debugPrint('=== MAP: Animated camera to route bounds ===');
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('=== ROUTING: Error fetching route: $e ===');
+      // Fallback: use original trek
+      _trekWithRoute = widget.trek;
     }
   }
 
@@ -351,56 +449,108 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
   }
 
   void _toggleMapType() {
+    // Cycle through map types: Normal -> Terrain -> Satellite -> Normal
     setState(() {
-      _mapType = _mapType == MapType.satellite ? MapType.normal : MapType.satellite;
+      switch (_mapType) {
+        case MapType.normal:
+          _mapType = MapType.terrain;
+          break;
+        case MapType.terrain:
+          _mapType = MapType.satellite;
+          break;
+        case MapType.satellite:
+          _mapType = MapType.normal;
+          break;
+        default:
+          _mapType = MapType.normal;
+      }
     });
     HapticFeedback.selectionClick();
+  }
+
+  /// Get appropriate icon based on current map type
+  IconData _getMapTypeIcon() {
+    switch (_mapType) {
+      case MapType.normal:
+        return Icons.map;
+      case MapType.terrain:
+        return Icons.terrain;
+      case MapType.satellite:
+        return Icons.satellite;
+      default:
+        return Icons.map;
+    }
+  }
+
+  /// Calculate bounds to fit entire route on map
+  LatLngBounds? _getRouteBounds() {
+    final trek = _trekWithRoute ?? widget.trek;
+    if (trek == null || trek.routePoints.isEmpty) return null;
+
+    double minLat = double.infinity;
+    double maxLat = double.negativeInfinity;
+    double minLng = double.infinity;
+    double maxLng = double.negativeInfinity;
+
+    for (final point in trek.routePoints) {
+      if (point.latitude < minLat) minLat = point.latitude;
+      if (point.latitude > maxLat) maxLat = point.latitude;
+      if (point.longitude < minLng) minLng = point.longitude;
+      if (point.longitude > maxLng) maxLng = point.longitude;
+    }
+
+    return LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
   }
 
   Set<Polyline> _buildPolylines() {
     final polylines = <Polyline>{};
 
-    // Route from user to trek start point (before recording starts)
-    if (!_isRecording && widget.trek != null && widget.trek!.startPoint != null && _currentPosition != null) {
-      polylines.add(Polyline(
-        polylineId: const PolylineId('route_to_start'),
-        points: [
-          LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-          LatLng(widget.trek!.startPoint!.latitude, widget.trek!.startPoint!.longitude),
-        ],
-        color: Colors.blue,
-        width: 4,
-        patterns: [PatternItem.dash(15), PatternItem.gap(10)],
-      ));
-    }
-
-    // Predefined trek route (if following)
-    if (widget.trek != null && widget.trek!.routePoints.isNotEmpty) {
+    // Use trek with fetched route, or original trek
+    final trek = _trekWithRoute ?? widget.trek;
+    
+    debugPrint('=== POLYLINES: Building polylines, trek=${trek?.title}, _trekWithRoute=${_trekWithRoute?.title} ===');
+    
+    // Show the planned navigation route (blue line)
+    // Skip drawing if it's just a straight line (2 points or less) as it's not helpful
+    if (trek != null && trek.routePoints.length > 2) {
+      final points = trek.routePoints
+          .map((p) => LatLng(p.latitude, p.longitude))
+          .toList();
+      debugPrint('=== POLYLINES: Trek has ${points.length} route points, creating polyline ===');
       polylines.add(Polyline(
         polylineId: const PolylineId('trek_route'),
-        points: widget.trek!.routePoints
-            .map((p) => LatLng(p.latitude, p.longitude))
-            .toList(),
-        color: AppColors.primary.withOpacity(0.7),
-        width: 5,
-      ));
-    }
-
-    // Recorded path
-    if (_recordedPath.isNotEmpty) {
-      polylines.add(Polyline(
-        polylineId: const PolylineId('recorded_path'),
-        points: _recordedPath,
-        color: AppColors.success,
+        points: points,
+        color: const Color(0xFF2196F3), // Bright blue - navigation route
         width: 6,
       ));
     }
 
+    // Recorded path - Bold green (your actual path while recording)
+    if (_recordedPath.isNotEmpty && _recordedPath.length > 1) {
+      debugPrint('=== POLYLINES: Adding recorded path with ${_recordedPath.length} points ===');
+      polylines.add(Polyline(
+        polylineId: const PolylineId('recorded_path'),
+        points: _recordedPath,
+        color: const Color(0xFF4CAF50), // Bright green - actual path
+        width: 10,
+      ));
+    }
+
+    debugPrint('=== POLYLINES: Total polylines built: ${polylines.length} ===');
     return polylines;
+  }
+
+  Set<Polygon> _buildPolygons() {
+    // Polygons disabled - using Polylines only to avoid duplicate route lines
+    return {};
   }
 
   Set<Marker> _buildMarkers() {
     final markers = <Marker>{};
+    final trek = _trekWithRoute ?? widget.trek;
 
     // User location marker
     if (_currentPosition != null) {
@@ -413,22 +563,28 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
     }
 
     // Trek start point
-    if (widget.trek != null && widget.trek!.startPoint != null) {
+    if (trek != null && trek.startPoint != null) {
       markers.add(Marker(
         markerId: const MarkerId('trek_start'),
-        position: LatLng(widget.trek!.startPoint!.latitude, widget.trek!.startPoint!.longitude),
+        position: LatLng(trek.startPoint!.latitude, trek.startPoint!.longitude),
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-        infoWindow: InfoWindow(title: 'Start: ${widget.trek!.title}'),
+        infoWindow: InfoWindow(
+          title: '🟢 Start: ${trek.title}',
+          snippet: '${trek.startPoint!.latitude.toStringAsFixed(4)}, ${trek.startPoint!.longitude.toStringAsFixed(4)}',
+        ),
       ));
     }
 
     // Trek end point
-    if (widget.trek != null && widget.trek!.endPoint != null) {
+    if (trek != null && trek.endPoint != null) {
       markers.add(Marker(
         markerId: const MarkerId('trek_end'),
-        position: LatLng(widget.trek!.endPoint!.latitude, widget.trek!.endPoint!.longitude),
+        position: LatLng(trek.endPoint!.latitude, trek.endPoint!.longitude),
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-        infoWindow: const InfoWindow(title: 'End Point'),
+        infoWindow: InfoWindow(
+          title: '🔴 End Point',
+          snippet: '${trek.endPoint!.latitude.toStringAsFixed(4)}, ${trek.endPoint!.longitude.toStringAsFixed(4)}',
+        ),
       ));
     }
 
@@ -558,14 +714,20 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 _MapControlButton(
-                  icon: _mapType == MapType.satellite ? Icons.map : Icons.satellite,
+                  icon: _getMapTypeIcon(),
                   onPressed: _toggleMapType,
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 _MapControlButton(
                   icon: Icons.layers,
                   onPressed: () {
-                    // TODO: Show layer options
+                    // Fit route in view
+                    final bounds = _getRouteBounds();
+                    if (bounds != null && _mapController != null) {
+                      _mapController!.animateCamera(
+                        CameraUpdate.newLatLngBounds(bounds, 100),
+                      );
+                    }
                   },
                 ),
               ],
@@ -594,8 +756,8 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
     return GoogleMap(
       initialCameraPosition: CameraPosition(
         target: initialPosition,
-        zoom: 16,
-        tilt: 45,
+        zoom: 13,
+        // No tilt - keep flat view so polylines are clearly visible
       ),
       mapType: _mapType,
       myLocationEnabled: true,
@@ -603,9 +765,26 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
       zoomControlsEnabled: false,
       compassEnabled: true,
       polylines: _buildPolylines(),
+      polygons: _buildPolygons(),
       markers: _buildMarkers(),
       onMapCreated: (controller) {
         _mapController = controller;
+        // Fit the entire route in view when trek is loaded
+        final trek = _trekWithRoute ?? widget.trek;
+        if (trek != null && trek.routePoints.isNotEmpty && trek.routePoints.length > 1) {
+          Future.delayed(const Duration(milliseconds: 300), () {
+            final bounds = _getRouteBounds();
+            if (bounds != null && mounted) {
+              try {
+                controller.animateCamera(
+                  CameraUpdate.newLatLngBounds(bounds, 100),
+                );
+              } catch (e) {
+                debugPrint('Error animating camera: $e');
+              }
+            }
+          });
+        }
       },
     );
   }
@@ -670,6 +849,87 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildLegend() {
+    final hasRecording = _recordedPath.isNotEmpty;
+    final trek = _trekWithRoute ?? widget.trek;
+    final hasTrekRoute = trek != null && trek.routePoints.length > 2;
+
+    if (!hasTrekRoute && !hasRecording) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Title
+          if (hasTrekRoute)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Row(
+                children: [
+                  Icon(Icons.info, size: 16, color: AppColors.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Follow the suggested route',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (hasTrekRoute)
+            _LegendItem(
+              color: AppColors.primary.withOpacity(0.7),
+              label: 'Suggested Route (Follow this path)',
+              width: 6,
+            ),
+          if (hasTrekRoute && hasRecording)
+            const SizedBox(height: AppSpacing.sm),
+          if (hasRecording)
+            _LegendItem(
+              color: AppColors.success,
+              label: 'Your Recording (Actual path taken)',
+              width: 8,
+            ),
+          const SizedBox(height: AppSpacing.sm),
+          const Divider(height: 1),
+          const SizedBox(height: AppSpacing.sm),
+          _LegendItem(
+            emoji: '🟢',
+            label: 'Start Point',
+            width: 0,
+          ),
+          _LegendItem(
+            emoji: '🔴',
+            label: 'End Point',
+            width: 0,
+          ),
+          _LegendItem(
+            emoji: '🔵',
+            label: 'Your Location',
+            width: 0,
+          ),
+        ],
       ),
     );
   }
@@ -1050,6 +1310,29 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
+        TextButton.icon(
+          onPressed: () {
+            final title = _titleController.text.isEmpty
+                ? 'Track ${DateTime.now().toString().substring(0, 16)}'
+                : _titleController.text;
+            final notes = _notesController.text;
+            
+            // Share trek details
+            Share.share(
+              '🏃 Trek Completed! 🏃\n\n'
+              '📍 $title\n\n'
+              '📏 Distance: ${_formatDistance(widget.distance)}\n'
+              '⏱️ Duration: ${_formatDuration(widget.duration)}\n'
+              '⚡ Avg Speed: ${((widget.distance / 1000) / (widget.duration.inSeconds / 3600)).toStringAsFixed(2)} km/h\n'
+              '${notes.isNotEmpty ? "\n📝 Notes: $notes\n" : ""}'
+              '\nDownload LiveGreen to track your treks!\n'
+              'https://play.google.com/store/apps/details?id=com.livegreen.app',
+              subject: title,
+            );
+          },
+          icon: const Icon(Icons.share),
+          label: const Text('Share'),
+        ),
         FilledButton(
           onPressed: () {
             Navigator.pop(context, {
@@ -1063,5 +1346,72 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
         ),
       ],
     );
+  }
+}
+/// Legend item widget for map legend display
+class _LegendItem extends StatelessWidget {
+  final String? emoji;
+  final String label;
+  final Color? color;
+  final int width;
+
+  const _LegendItem({
+    this.emoji,
+    required this.label,
+    this.color,
+    this.width = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (emoji != null) {
+      // Marker legend item
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              emoji!,
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      // Polyline legend item
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              height: 3,
+              width: 24,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
   }
 }

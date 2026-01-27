@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../theme/app_theme.dart';
 import '../../models/trek.dart';
 import '../../services/trek_service.dart';
@@ -236,6 +237,90 @@ class _TrackCard extends StatelessWidget {
     required this.onDelete,
   });
 
+  void _shareTrack() {
+    final duration = track.endTime.difference(track.startTime);
+    final avgSpeed = duration.inSeconds > 0
+        ? (track.distance / 1000) / (duration.inSeconds / 3600)
+        : 0;
+    
+    Share.share(
+      '🏃 Trek Completed! 🏃\n\n'
+      '📍 ${track.title ?? "My Trek"}\n\n'
+      '📏 Distance: ${_formatDistance(track.distance)}\n'
+      '⏱️ Duration: ${track.formattedDuration}\n'
+      '⚡ Avg Speed: ${avgSpeed.toStringAsFixed(2)} km/h\n'
+      '🔥 Calories: ${_safeToInt(track.caloriesBurned)} kcal\n'
+      '📅 Date: ${_formatDate(track.startTime)}\n'
+      '${track.notes != null && track.notes!.isNotEmpty ? "\n📝 Notes: ${track.notes}\n" : ""}'
+      '\nDownload LiveGreen to track your treks!\n'
+      'https://play.google.com/store/apps/details?id=com.livegreen.app',
+      subject: track.title ?? 'My Trek',
+    );
+  }
+
+  /// Build Google Maps preview showing the recorded route as a polyline
+  Widget _buildMapPreview() {
+    if (track.points.isEmpty) {
+      return Container(
+        color: Colors.grey[300],
+        child: const Center(
+          child: Text('No route data'),
+        ),
+      );
+    }
+
+    final startPoint = track.points.first;
+    final polylinePoints = track.points
+        .map((p) => LatLng(p.latitude, p.longitude))
+        .toList();
+
+    return GoogleMap(
+      initialCameraPosition: CameraPosition(
+        target: LatLng(startPoint.latitude, startPoint.longitude),
+        zoom: 13,
+      ),
+      polylines: {
+        Polyline(
+          polylineId: const PolylineId('track_preview'),
+          points: polylinePoints,
+          color: AppColors.primary,
+          width: 4,
+          geodesic: true,
+        ),
+      },
+      markers: {
+        // Green marker at start
+        Marker(
+          markerId: const MarkerId('start'),
+          position: polylinePoints.first,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          infoWindow: const InfoWindow(
+            title: 'Start',
+            snippet: 'Starting point',
+          ),
+        ),
+        // Red marker at end
+        if (polylinePoints.length > 1)
+          Marker(
+            markerId: const MarkerId('end'),
+            position: polylinePoints.last,
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+            infoWindow: const InfoWindow(
+              title: 'End',
+              snippet: 'Ending point',
+            ),
+          ),
+      },
+      mapType: MapType.terrain,
+      myLocationEnabled: false,
+      zoomControlsEnabled: false,
+      scrollGesturesEnabled: false,
+      rotateGesturesEnabled: false,
+      tiltGesturesEnabled: false,
+      compassEnabled: false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -298,14 +383,42 @@ class _TrackCard extends StatelessWidget {
                     ),
                   ),
                   IconButton(
+                    icon: const Icon(Icons.share),
+                    color: colorScheme.primary,
+                    onPressed: _shareTrack,
+                    tooltip: 'Share',
+                  ),
+                  IconButton(
                     icon: const Icon(Icons.delete_outline),
                     color: AppColors.error,
                     onPressed: onDelete,
+                    tooltip: 'Delete',
                   ),
                 ],
               ),
               const SizedBox(height: AppSpacing.md),
               const Divider(height: 1),
+              const SizedBox(height: AppSpacing.md),
+              // Map preview with polyline route (Google Maps style)
+              if (track.points.isNotEmpty)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  child: SizedBox(
+                    height: 160,
+                    child: _buildMapPreview(),
+                  ),
+                )
+              else
+                Container(
+                  height: 160,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.grey[800] : Colors.grey[200],
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: const Center(
+                    child: Text('No route data'),
+                  ),
+                ),
               const SizedBox(height: AppSpacing.md),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -323,7 +436,7 @@ class _TrackCard extends StatelessWidget {
                   _StatItem(
                     icon: Icons.local_fire_department_outlined,
                     label: 'Calories',
-                    value: '${track.caloriesBurned.toInt()} kcal',
+                    value: '${_safeToInt(track.caloriesBurned)} kcal',
                   ),
                 ],
               ),
@@ -362,10 +475,22 @@ class _TrackCard extends StatelessWidget {
   }
 
   String _formatDistance(double meters) {
+    // Handle invalid values (NaN, Infinity)
+    if (!meters.isFinite || meters < 0) {
+      return '0 m';
+    }
     if (meters >= 1000) {
       return '${(meters / 1000).toStringAsFixed(2)} km';
     }
     return '${meters.toInt()} m';
+  }
+
+  /// Safe integer conversion that handles NaN and Infinity
+  int _safeToInt(double value) {
+    if (!value.isFinite || value.isNaN) {
+      return 0;
+    }
+    return value.toInt();
   }
 }
 
@@ -405,10 +530,23 @@ class _StatItem extends StatelessWidget {
 }
 
 /// Detailed view of a recorded track
-class _TrackDetailsScreen extends StatelessWidget {
+class _TrackDetailsScreen extends StatefulWidget {
   final RecordedTrack track;
 
   const _TrackDetailsScreen({required this.track});
+
+  @override
+  State<_TrackDetailsScreen> createState() => _TrackDetailsScreenState();
+}
+
+class _TrackDetailsScreenState extends State<_TrackDetailsScreen> {
+  late MapType _mapType;
+
+  @override
+  void initState() {
+    super.initState();
+    _mapType = MapType.terrain;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -418,19 +556,59 @@ class _TrackDetailsScreen extends StatelessWidget {
       backgroundColor: isDark ? AppColors.backgroundDark : AppColors.backgroundLight,
       appBar: AppBar(
         title: Text(
-          track.title ?? 'Track Details',
+          widget.track.title ?? 'Track Details',
           style: GoogleFonts.manrope(fontWeight: FontWeight.bold),
         ),
         backgroundColor: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        actions: [
+          // Map type selector
+          PopupMenuButton<MapType>(
+            onSelected: (MapType result) {
+              setState(() => _mapType = result);
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<MapType>>[
+              const PopupMenuItem<MapType>(
+                value: MapType.normal,
+                child: Row(
+                  children: [
+                    Icon(Icons.map, size: 20),
+                    SizedBox(width: 8),
+                    Text('Normal'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<MapType>(
+                value: MapType.terrain,
+                child: Row(
+                  children: [
+                    Icon(Icons.landscape, size: 20),
+                    SizedBox(width: 8),
+                    Text('Terrain'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<MapType>(
+                value: MapType.satellite,
+                child: Row(
+                  children: [
+                    Icon(Icons.satellite, size: 20),
+                    SizedBox(width: 8),
+                    Text('Satellite'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Map preview
+            // Full-size map with enhanced styling (like Google Maps)
             SizedBox(
-              height: 300,
-              child: _buildMap(),
+              height: 400,
+              child: _buildDetailedMap(),
             ),
             
             // Stats
@@ -449,7 +627,7 @@ class _TrackDetailsScreen extends StatelessWidget {
                   const SizedBox(height: AppSpacing.md),
                   _buildStatsGrid(),
                   
-                  if (track.notes != null && track.notes!.isNotEmpty) ...[
+                  if (widget.track.notes != null && widget.track.notes!.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.xl),
                     Text(
                       'Notes',
@@ -460,7 +638,7 @@ class _TrackDetailsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     Text(
-                      track.notes!,
+                      widget.track.notes!,
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ],
@@ -473,8 +651,9 @@ class _TrackDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildMap() {
-    if (track.points.isEmpty) {
+  /// Build detailed Google Maps view with styled polyline (Google Maps style)
+  Widget _buildDetailedMap() {
+    if (widget.track.points.isEmpty) {
       return Container(
         color: Colors.grey[300],
         child: const Center(
@@ -483,42 +662,136 @@ class _TrackDetailsScreen extends StatelessWidget {
       );
     }
 
-    final startPoint = track.points.first;
-    final polylinePoints = track.points
+    final startPoint = widget.track.points.first;
+    final polylinePoints = widget.track.points
         .map((p) => LatLng(p.latitude, p.longitude))
         .toList();
 
-    return GoogleMap(
-      initialCameraPosition: CameraPosition(
-        target: LatLng(startPoint.latitude, startPoint.longitude),
-        zoom: 14,
-      ),
-      polylines: {
-        Polyline(
-          polylineId: const PolylineId('track'),
-          points: polylinePoints,
-          color: AppColors.primary,
-          width: 5,
-        ),
-      },
-      markers: {
-        Marker(
-          markerId: const MarkerId('start'),
-          position: polylinePoints.first,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-          infoWindow: const InfoWindow(title: 'Start'),
-        ),
-        if (polylinePoints.length > 1)
-          Marker(
-            markerId: const MarkerId('end'),
-            position: polylinePoints.last,
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-            infoWindow: const InfoWindow(title: 'End'),
+    return Stack(
+      children: [
+        GoogleMap(
+          initialCameraPosition: CameraPosition(
+            target: LatLng(startPoint.latitude, startPoint.longitude),
+            zoom: 14,
           ),
-      },
-      mapType: MapType.terrain,
-      myLocationEnabled: false,
-      zoomControlsEnabled: true,
+          polylines: {
+            // Main route polyline (bold, visible blue)
+            Polyline(
+              polylineId: const PolylineId('track_main'),
+              points: polylinePoints,
+              color: const Color(0xFF2196F3), // Bright blue
+              width: 8,
+              geodesic: true,
+            ),
+          },
+          markers: {
+            // Green marker at start
+            Marker(
+              markerId: const MarkerId('start'),
+              position: polylinePoints.first,
+              icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+              infoWindow: InfoWindow(
+                title: '🟢 Start Point',
+                snippet: '${polylinePoints.first.latitude.toStringAsFixed(4)}, ${polylinePoints.first.longitude.toStringAsFixed(4)}',
+              ),
+            ),
+            // Red marker at end
+            if (polylinePoints.length > 1)
+              Marker(
+                markerId: const MarkerId('end'),
+                position: polylinePoints.last,
+                icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+                infoWindow: InfoWindow(
+                  title: '🔴 End Point',
+                  snippet: '${polylinePoints.last.latitude.toStringAsFixed(4)}, ${polylinePoints.last.longitude.toStringAsFixed(4)}',
+                ),
+              ),
+          },
+          mapType: _mapType,
+          myLocationEnabled: false,
+          zoomControlsEnabled: true,
+        ),
+        // Legend overlay (Google Maps style)
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: const BoxDecoration(
+                        color: Colors.green,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Start',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'End',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 3,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Route',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -534,37 +807,37 @@ class _TrackDetailsScreen extends StatelessWidget {
         _StatTile(
           icon: Icons.straighten,
           label: 'Distance',
-          value: _formatDistance(track.distance),
+          value: _formatDistance(widget.track.distance),
           color: AppColors.primary,
         ),
         _StatTile(
           icon: Icons.timer_outlined,
           label: 'Duration',
-          value: track.formattedDuration,
+          value: widget.track.formattedDuration,
           color: AppColors.info,
         ),
         _StatTile(
           icon: Icons.speed,
           label: 'Avg Speed',
-          value: '${(track.avgSpeed * 3.6).toStringAsFixed(1)} km/h',
+          value: '${(widget.track.avgSpeed * 3.6).toStringAsFixed(1)} km/h',
           color: AppColors.warning,
         ),
         _StatTile(
           icon: Icons.bolt,
           label: 'Max Speed',
-          value: '${(track.maxSpeed * 3.6).toStringAsFixed(1)} km/h',
+          value: '${(widget.track.maxSpeed * 3.6).toStringAsFixed(1)} km/h',
           color: AppColors.error,
         ),
         _StatTile(
           icon: Icons.trending_up,
           label: 'Elevation Gain',
-          value: '+${track.elevationGain.toInt()} m',
+          value: '+${_safeToInt(widget.track.elevationGain)} m',
           color: AppColors.success,
         ),
         _StatTile(
           icon: Icons.local_fire_department,
           label: 'Calories',
-          value: '${track.caloriesBurned.toInt()} kcal',
+          value: '${_safeToInt(widget.track.caloriesBurned)} kcal',
           color: Colors.orange,
         ),
       ],
@@ -572,10 +845,22 @@ class _TrackDetailsScreen extends StatelessWidget {
   }
 
   String _formatDistance(double meters) {
+    // Handle invalid values (NaN, Infinity)
+    if (!meters.isFinite || meters < 0) {
+      return '0 m';
+    }
     if (meters >= 1000) {
       return '${(meters / 1000).toStringAsFixed(2)} km';
     }
     return '${meters.toInt()} m';
+  }
+
+  /// Safe integer conversion that handles NaN and Infinity
+  int _safeToInt(double value) {
+    if (!value.isFinite || value.isNaN) {
+      return 0;
+    }
+    return value.toInt();
   }
 }
 

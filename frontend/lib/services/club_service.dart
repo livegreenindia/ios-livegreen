@@ -51,6 +51,20 @@ class ClubService {
       );
 
       final docRef = await _firestore.collection('clubs').add(club.toFirestore());
+      
+      // Create member document for the creator in the members subcollection
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      final userData = userDoc.data();
+      
+      await _firestore.collection('clubs').doc(docRef.id).collection('members').doc(userId).set({
+        'clubId': docRef.id,
+        'name': userData?['name'] ?? creatorName,
+        'imageUrl': userData?['profileImageUrl'] ?? creatorImageUrl,
+        'role': 'leader',
+        'joinedAt': FieldValue.serverTimestamp(),
+        'isActive': true,
+      });
+      
       return docRef.id;
     } catch (e) {
       throw Exception('Failed to create club: $e');
@@ -174,9 +188,24 @@ class ClubService {
       if (club == null) throw Exception('Club not found');
 
       if (!club.memberIds.contains(userId)) {
+        // Update main club document
         await _firestore.collection('clubs').doc(clubId).update({
           'memberIds': FieldValue.arrayUnion([userId]),
           'memberCount': FieldValue.increment(1),
+        });
+
+        // Get user data for member document
+        final userDoc = await _firestore.collection('users').doc(userId).get();
+        final userData = userDoc.data();
+        
+        // Create member document in subcollection
+        await _firestore.collection('clubs').doc(clubId).collection('members').doc(userId).set({
+          'clubId': clubId,
+          'name': userData?['name'] ?? userName,
+          'imageUrl': userData?['profileImageUrl'],
+          'role': 'member',
+          'joinedAt': FieldValue.serverTimestamp(),
+          'isActive': true,
         });
       }
     } catch (e) {
@@ -195,6 +224,9 @@ class ClubService {
           'memberIds': FieldValue.arrayRemove([userId]),
           'memberCount': FieldValue.increment(-1),
         });
+        
+        // Remove member document from subcollection
+        await _firestore.collection('clubs').doc(clubId).collection('members').doc(userId).delete();
       }
 
       // Remove from leaders if applicable
@@ -532,5 +564,68 @@ class ClubService {
         .orderBy('timestamp', descending: false)
         .snapshots()
         .map((snapshot) => snapshot.docs.map((doc) => ClubMessage.fromFirestore(doc)).toList());
+  }
+
+  // Migrate existing club members from memberIds array to members subcollection
+  // Call this once to populate members subcollection for existing clubs
+  Future<void> migrateClubMembers(String clubId) async {
+    try {
+      final club = await getClubById(clubId);
+      if (club == null) throw Exception('Club not found');
+
+      // Check if migration already done
+      final existingMembers = await _firestore
+          .collection('clubs')
+          .doc(clubId)
+          .collection('members')
+          .limit(1)
+          .get();
+      
+      if (existingMembers.docs.isNotEmpty) {
+        print('Club $clubId already has members subcollection');
+        return;
+      }
+
+      // Fetch user data for all members and create member documents
+      for (String userId in club.memberIds) {
+        try {
+          final userDoc = await _firestore.collection('users').doc(userId).get();
+          final userData = userDoc.data();
+          
+          final isLeader = club.leaderIds.contains(userId);
+          final isCreator = club.creatorId == userId;
+          
+          await _firestore.collection('clubs').doc(clubId).collection('members').doc(userId).set({
+            'clubId': clubId,
+            'name': userData?['name'] ?? (isCreator ? club.creatorName : 'Unknown'),
+            'imageUrl': userData?['profileImageUrl'] ?? (isCreator ? club.creatorImageUrl : null),
+            'role': isLeader ? 'leader' : 'member',
+            'joinedAt': isCreator ? Timestamp.fromDate(club.createdAt) : FieldValue.serverTimestamp(),
+            'isActive': true,
+          });
+        } catch (e) {
+          print('Failed to migrate member $userId: $e');
+        }
+      }
+      
+      print('Successfully migrated ${club.memberIds.length} members for club $clubId');
+    } catch (e) {
+      throw Exception('Failed to migrate club members: $e');
+    }
+  }
+
+  // Migrate all clubs - run this once
+  Future<void> migrateAllClubMembers() async {
+    try {
+      final clubs = await _firestore.collection('clubs').get();
+      
+      for (var clubDoc in clubs.docs) {
+        await migrateClubMembers(clubDoc.id);
+      }
+      
+      print('Successfully migrated all clubs');
+    } catch (e) {
+      throw Exception('Failed to migrate all clubs: $e');
+    }
   }
 }

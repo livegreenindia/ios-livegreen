@@ -174,7 +174,8 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
               description: 'Required to detect foreground apps and block them.',
               enabled: _accessibilityEnabled,
               onEnable: () async {
-                await AppBlocker.requestAccessibilityPermission();
+                // Show prominent disclosure before requesting permission
+                await _showAccessibilityDisclosure();
               },
             ),
             const SizedBox(height: 12),
@@ -220,6 +221,122 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _showAccessibilityDisclosure() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Text(
+          'Accessibility Service Required',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'LiveGreen uses Accessibility Services to help you maintain digital wellness:',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 16),
+              _disclosureItem(
+                icon: Icons.block,
+                title: 'App Blocking',
+                description: 'Detect when you open distracting apps and automatically redirect you to the home screen during quiet hours or when usage limits are exceeded.',
+              ),
+              const SizedBox(height: 12),
+              _disclosureItem(
+                icon: Icons.schedule,
+                title: 'Focus Time Protection',
+                description: 'Prevent interruptions during your scheduled focus sessions and deep work periods.',
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.privacy_tip, color: Colors.orange[300], size: 24),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Privacy: We only monitor app package names during quiet hours. No personal data, content, or keystrokes are collected or shared.',
+                        style: TextStyle(color: Colors.orange[100], fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'You can disable this at any time in your device\'s Accessibility Settings.',
+                style: TextStyle(color: Colors.white70, fontSize: 12, fontStyle: FontStyle.italic),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF388E3C),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('I Understand, Continue'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await AppBlocker.requestAccessibilityPermission();
+    }
+  }
+
+  Widget _disclosureItem({
+    required IconData icon,
+    required String title,
+    required String description,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: const Color(0xFF388E3C), size: 24),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

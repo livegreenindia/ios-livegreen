@@ -456,12 +456,16 @@ class TrekService {
   Future<List<RecordedTrack>> getUserTracks({int limit = 20}) async {
     try {
       final snapshot = await _userTracksCollection
-          .orderBy('startTime', descending: true)
           .limit(limit)
           .get()
           .timeout(_operationTimeout);
       
-      return snapshot.docs.map((doc) => RecordedTrack.fromFirestore(doc)).toList();
+      final tracks = snapshot.docs.map((doc) => RecordedTrack.fromFirestore(doc)).toList();
+      
+      // Sort by startTime descending in Dart (no index required)
+      tracks.sort((a, b) => b.startTime.compareTo(a.startTime));
+      
+      return tracks;
     } catch (e) {
       throw TrekServiceException('Failed to get user tracks: $e');
     }
@@ -470,11 +474,13 @@ class TrekService {
   /// Stream user's recorded tracks
   Stream<List<RecordedTrack>> streamUserTracks() {
     return _userTracksCollection
-        .orderBy('startTime', descending: true)
         .limit(50)
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs.map((doc) => RecordedTrack.fromFirestore(doc)).toList();
+          final tracks = snapshot.docs.map((doc) => RecordedTrack.fromFirestore(doc)).toList();
+          // Sort by startTime descending in Dart (no index required)
+          tracks.sort((a, b) => b.startTime.compareTo(a.startTime));
+          return tracks;
         })
         .handleError((e) {
           debugPrint('Error streaming user tracks: $e');

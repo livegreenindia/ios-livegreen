@@ -12,7 +12,7 @@ plugins {
 
 android {
     namespace = "com.livegreen.app"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     // Load properties from key.properties
@@ -39,7 +39,7 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 26 // Required for health package (Health Connect)
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         
@@ -64,10 +64,6 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
-            // Enable R8 code shrinking and obfuscation
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
     
@@ -75,8 +71,6 @@ android {
     packagingOptions {
         jniLibs {
             useLegacyPackaging = true
-            // Keep debug symbols for crash reporting
-            keepDebugSymbols += listOf("*/arm64-v8a/*.so", "*/armeabi-v7a/*.so", "*/x86_64/*.so", "*/x86/*.so")
         }
     }
 }
@@ -88,4 +82,8 @@ flutter {
 dependencies {
     // Core library desugaring
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    
+    // Force AndroidX core library version to resolve lStar issue
+    implementation("androidx.core:core:1.13.1")
+    implementation("androidx.core:core-ktx:1.13.1")
 }

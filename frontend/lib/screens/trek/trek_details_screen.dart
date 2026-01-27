@@ -5,6 +5,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../theme/app_theme.dart';
 import '../../models/trek.dart';
 import '../../services/trek_service.dart';
@@ -195,17 +196,24 @@ class _TrekDetailsScreenState extends State<TrekDetailsScreen> {
   }
 
   Set<Polyline> _buildPolylines() {
-    if (widget.trek.routePoints.isEmpty) return {};
+    if (widget.trek.routePoints.isEmpty) {
+      debugPrint('Trek details polyline: No route points');
+      return {};
+    }
+
+    final points = widget.trek.routePoints
+        .map((p) => LatLng(p.latitude, p.longitude))
+        .toList();
+    
+    debugPrint('Trek details polyline: ${points.length} points');
 
     return {
+      // Main route polyline - Bold and very visible
       Polyline(
         polylineId: const PolylineId('route'),
-        points: widget.trek.routePoints
-            .map((p) => LatLng(p.latitude, p.longitude))
-            .toList(),
-        color: AppColors.primary,
-        width: 4,
-        patterns: [PatternItem.dot, PatternItem.gap(10)],
+        points: points,
+        color: const Color(0xFF2196F3), // Bright blue
+        width: 8,
       ),
     };
   }
@@ -221,7 +229,10 @@ class _TrekDetailsScreenState extends State<TrekDetailsScreen> {
           widget.trek.startPoint!.longitude,
         ),
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-        infoWindow: const InfoWindow(title: 'Start'),
+        infoWindow: InfoWindow(
+          title: '🟢 Trek Start',
+          snippet: '${widget.trek.startPoint!.latitude.toStringAsFixed(4)}, ${widget.trek.startPoint!.longitude.toStringAsFixed(4)}',
+        ),
       ));
     }
 
@@ -233,7 +244,10 @@ class _TrekDetailsScreenState extends State<TrekDetailsScreen> {
           widget.trek.endPoint!.longitude,
         ),
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-        infoWindow: const InfoWindow(title: 'End'),
+        infoWindow: InfoWindow(
+          title: '🔴 Trek End',
+          snippet: '${widget.trek.endPoint!.latitude.toStringAsFixed(4)}, ${widget.trek.endPoint!.longitude.toStringAsFixed(4)}',
+        ),
       ));
     }
 
@@ -347,7 +361,15 @@ class _TrekDetailsScreenState extends State<TrekDetailsScreen> {
               IconButton(
                 icon: const Icon(Icons.share, color: Colors.white),
                 onPressed: () {
-                  // TODO: Implement share
+                  Share.share(
+                    '${widget.trek.title}\n\n'
+                    '${widget.trek.description}\n\n'
+                    'Distance: ${widget.trek.formattedDistance}\n'
+                    'Est. Time: ${widget.trek.formattedTime}\n'
+                    'Difficulty: ${widget.trek.difficulty.name}\n\n'
+                    'Explore this place on LiveGreen!',
+                    subject: widget.trek.title,
+                  );
                 },
               ),
             ],
@@ -1039,7 +1061,7 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
   Set<Polyline> _buildPolylines() {
     final polylines = <Polyline>{};
 
-    // Trek route
+    // Trek route - only show if actual route points exist (GPX data, drawn paths, recorded tracks)
     if (widget.trek.routePoints.isNotEmpty) {
       polylines.add(Polyline(
         polylineId: const PolylineId('trek_route'),
@@ -1051,19 +1073,7 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
       ));
     }
 
-    // Route from user to start point
-    if (widget.currentPosition != null && widget.trek.startPoint != null) {
-      polylines.add(Polyline(
-        polylineId: const PolylineId('user_to_start'),
-        points: [
-          LatLng(widget.currentPosition!.latitude, widget.currentPosition!.longitude),
-          LatLng(widget.trek.startPoint!.latitude, widget.trek.startPoint!.longitude),
-        ],
-        color: Colors.blue,
-        width: 4,
-        patterns: [PatternItem.dash(15), PatternItem.gap(10)],
-      ));
-    }
+    // Don't show straight line to start - use "Get Directions" button instead for proper routing
 
     return polylines;
   }

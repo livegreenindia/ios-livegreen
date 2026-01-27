@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import '../../models/club.dart';
 import '../../services/club_service.dart';
 
@@ -76,11 +77,43 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       }
 
       final position = await Geolocator.getCurrentPosition();
-      setState(() {
-        _latitude = position.latitude;
-        _longitude = position.longitude;
-        _locationController.text = 'Current location captured';
-      });
+      
+      // Reverse geocode to get place name
+      try {
+        List<Placemark> placemarks = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        
+        if (placemarks.isNotEmpty) {
+          final place = placemarks.first;
+          final locationParts = [
+            place.name,
+            place.locality,
+            place.administrativeArea,
+            place.country,
+          ].where((part) => part != null && part.isNotEmpty).toList();
+          
+          setState(() {
+            _latitude = position.latitude;
+            _longitude = position.longitude;
+            _locationController.text = locationParts.join(', ');
+          });
+        } else {
+          setState(() {
+            _latitude = position.latitude;
+            _longitude = position.longitude;
+            _locationController.text = 'Location: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
+          });
+        }
+      } catch (e) {
+        // If reverse geocoding fails, show coordinates
+        setState(() {
+          _latitude = position.latitude;
+          _longitude = position.longitude;
+          _locationController.text = 'Location: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
+        });
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

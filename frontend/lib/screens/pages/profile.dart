@@ -36,7 +36,7 @@ class _ProfilePageState extends State<ProfilePage> {
   int _completedActivities = 0;
   int _wellnessScore = 0;
   bool _statsLoading = true;
-  String _appVersion = '1.0.2';
+  String _appVersion = '1.1.0';
 
   @override
   void initState() {

@@ -19,7 +19,7 @@ class _SplashScreenState extends State<SplashScreen>
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
   late Animation<Offset> _slideAnimation;
-  String _appVersion = '1.0.2';
+  String _appVersion = '1.1.0';
 
   @override
   void initState() {

@@ -1,4 +1,18 @@
 {
+  "hosting": {
+    "public": "website",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/clubs/**",
+        "destination": "/index.html"
+      }
+    ]
+  },
   "functions": {
     "source": "backend/functions"
   },

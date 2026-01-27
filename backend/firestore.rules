@@ -85,6 +85,18 @@ service cloud.firestore {
       allow write: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
     }
 
+    // Payments: Razorpay payment records
+    match /payments/{orderId} {
+      // Users can read their own payment records, admins can read all
+      allow read: if isAuthenticated() && 
+                    (resource.data.uid == request.auth.uid || isAdmin() || isAdminByRole());
+      // Only backend (admin service account) can create/update payment records
+      // Users cannot directly write to payments collection
+      allow create, update: if false; // Only backend via Admin SDK
+      // Only admins can delete payment records
+      allow delete: if isAdmin() || isAdminByRole();
+    }
+
     // Pending Places: user-submitted places awaiting admin approval
     match /pendingPlaces/{placeId} {
       // Admins can read all, users can read their own submissions

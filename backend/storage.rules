@@ -1,0 +1,74 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+    
+    // Audio files for meditation - publicly readable for streaming
+    match /assets/sounds/{audioFile} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // Club images: only authenticated users can upload, read is public for approved clubs
+    match /clubs/{clubId}/{allPaths=**} {
+      // Anyone can read (for displaying approved club images)
+      allow read: if true;
+      
+      // Club creator/leaders can upload images
+      allow write: if isAuthenticated();
+    }
+    
+    // Place/Trek images: authenticated users can upload for submissions
+    match /places/{placeId}/{allPaths=**} {
+      // Anyone can read (for displaying approved places)
+      allow read: if true;
+      
+      // Authenticated users can upload images when submitting places
+      allow write: if isAuthenticated();
+    }
+    
+    // User profile images
+    match /users/{userId}/profile/{allPaths=**} {
+      // Anyone can read profile images
+      allow read: if true;
+      
+      // Only the user can upload their own profile image
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Trek/Activity images uploaded during trek creation or recording
+    match /treks/{trekId}/{allPaths=**} {
+      // Anyone can read trek images
+      allow read: if true;
+      
+      // Authenticated users can upload trek images
+      allow write: if isAuthenticated();
+    }
+    
+    // Activity photos
+    match /activities/{activityId}/{allPaths=**} {
+      // Anyone can read activity images
+      allow read: if true;
+      
+      // Authenticated users can upload activity images
+      allow write: if isAuthenticated();
+    }
+    
+    // Validation rules for all uploads
+    match /{allPaths=**} {
+      // Max file size: 10MB
+      allow write: if request.resource.size < 10 * 1024 * 1024;
+      
+      // Only allow image files
+      allow write: if request.resource.contentType.matches('image/.*');
+    }
+  }
+}

@@ -30,6 +30,14 @@ class ProgressPage extends StatefulWidget {
 
 class _ProgressPageState extends State<ProgressPage>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  // Allowed apps for Digital Wellness tracking (only these 4)
+  static const List<String> _allowedApps = [
+    'instagram',
+    'youtube',
+    'facebook',
+    'snapchat',
+  ];
+
   // Theme-aware color getters
   Color get primaryColor => AppColors.primary;
   Color get primaryLight => AppColors.primaryLight;
@@ -410,6 +418,27 @@ class _ProgressPageState extends State<ProgressPage>
     } catch (_) {}
   }
 
+  /// Check if an app is in the allowed list (exact name match)
+  bool _isAllowedApp(String appName) {
+    final lowerName = appName.toLowerCase();
+    for (final allowed in _allowedApps) {
+      if (lowerName == allowed) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Filter apps to only include allowed apps
+  List<Map<String, dynamic>> _filterAllowedApps(
+    List<Map<String, dynamic>> apps,
+  ) {
+    return apps.where((app) {
+      final appName = (app['appName'] as String?)?.toLowerCase() ?? '';
+      return _isAllowedApp(appName);
+    }).toList();
+  }
+
   Future<void> _fetchUsage() async {
     try {
       if (kDebugMode) {
@@ -454,11 +483,17 @@ class _ProgressPageState extends State<ProgressPage>
               .where((app) => app.isNotEmpty)
               .toList();
 
+          // Filter to only allowed apps
+          final filteredApps = _filterAllowedApps(apps);
+
           if (kDebugMode) {
             debugPrint(
               '[DigitalWellbeing] Social media apps received: ${apps.length}',
             );
-            for (var app in apps) {
+            debugPrint(
+              '[DigitalWellbeing] Allowed apps after filtering: ${filteredApps.length}',
+            );
+            for (var app in filteredApps) {
               debugPrint(
                 '[DigitalWellbeing] App: ${app['appName']}, Minutes: ${app['minutes']}',
               );
@@ -466,12 +501,12 @@ class _ProgressPageState extends State<ProgressPage>
           }
 
           setState(() {
-            _socialMediaApps = apps;
+            _socialMediaApps = filteredApps;
           });
 
           // Save daily social media usage to Firestore for notification checking
-          if (_range == 'daily' && apps.isNotEmpty) {
-            _saveSocialMediaMetrics(apps);
+          if (_range == 'daily' && filteredApps.isNotEmpty) {
+            _saveSocialMediaMetrics(filteredApps);
           }
         } else {
           if (kDebugMode) {
@@ -703,49 +738,42 @@ class _ProgressPageState extends State<ProgressPage>
       return raw.where((e) => e['date']?.toString() == today).toList();
     }
 
-    if (range == 'weekly') return raw;
-
-    final byDate = <String, Map<String, dynamic>>{};
-    for (final e in raw) {
-      final d = e['date']?.toString();
-      if (d != null) byDate[d] = e;
-    }
-
-    if (range == 'monthly') {
-      if (raw.isEmpty) return raw;
+    if (range == 'weekly') {
+      // Group by weeks of the month, showing W1, W2, W3, W4
+      final now = DateTime.now();
+      final monthStart = DateTime(now.year, now.month, 1);
+      final monthEnd = DateTime(now.year, now.month + 1, 0);
+      
       final dateMap = <String, Map<String, dynamic>>{};
       for (final e in raw) {
         final d = e['date']?.toString();
-        if (d != null) dateMap[d] = e;
+        if (d != null) {
+          try {
+            final dt = DateTime.parse(d);
+            if (dt.month == now.month && dt.year == now.year) {
+              dateMap[d] = e;
+            }
+          } catch (_) {}
+        }
       }
-
-      final now = DateTime.now();
-      DateTime startDate = DateTime(now.year, now.month, 1);
-      DateTime endDate = DateTime(now.year, now.month + 1, 0);
-
-      startDate = startDate.subtract(
-        Duration(days: (startDate.weekday + 6) % 7),
-      );
-      endDate = endDate.add(Duration(days: 7 - endDate.weekday));
-
-      final buckets = <Map<String, dynamic>>[];
-      DateTime cur = startDate;
-      // weekIndex no longer required; labels use date ranges
-      while (cur.isBefore(endDate) || cur.isAtSameMomentAs(endDate)) {
-        final weekStart = cur;
-        final weekEnd = cur.add(const Duration(days: 6));
+      
+      // Create 5 weeks (some months have days in week 5)
+      final weeks = <Map<String, dynamic>>[];
+      final maxWeeks = ((monthEnd.day - 1) ~/ 7) + 1; // Calculate actual weeks needed
+      for (int week = 1; week <= maxWeeks; week++) {
         final days = <Map<String, dynamic>>[];
-        for (int i = 0; i < 7; i++) {
-          final d = weekStart.add(Duration(days: i));
-          // only include days that belong to the target month (avoid next/prev-month spillover)
-          if (d.month != now.month) continue;
-          final key = d.toIso8601String().substring(0, 10);
-          if (dateMap.containsKey(key)) {
-            final entry = Map<String, dynamic>.from(dateMap[key]!);
-            entry['date'] = key;
-            days.add(entry);
+        // Get all days for this week
+        for (int day = 1; day <= monthEnd.day; day++) {
+          final weekNum = ((day - 1) ~/ 7) + 1;
+          if (weekNum == week) {
+            final d = DateTime(now.year, now.month, day);
+            final key = d.toIso8601String().substring(0, 10);
+            if (dateMap.containsKey(key)) {
+              days.add(dateMap[key]!);
+            }
           }
         }
+        
         double avgHap = 0.0;
         double avgComp = 0.0;
         int count = 0;
@@ -762,76 +790,57 @@ class _ProgressPageState extends State<ProgressPage>
               .map((x) => (x['count'] ?? 0) as int)
               .fold(0, (a, b) => a + b);
         }
-        // Build a friendly label clipped to the current month, e.g. "1–7 Oct"
-        final monthStart = DateTime(now.year, now.month, 1);
-        final monthEnd = DateTime(now.year, now.month + 1, 0);
-        final displayStart = weekStart.isBefore(monthStart)
-            ? monthStart
-            : weekStart;
-        final displayEnd = weekEnd.isAfter(monthEnd) ? monthEnd : weekEnd;
-        final monthLabel = [
-          'Jan',
-          'Feb',
-          'Mar',
-          'Apr',
-          'May',
-          'Jun',
-          'Jul',
-          'Aug',
-          'Sep',
-          'Oct',
-          'Nov',
-          'Dec',
-        ][now.month - 1];
-        final label = '${displayStart.day}–${displayEnd.day} $monthLabel';
-        buckets.add({
-          'label': label,
+        
+        weeks.add({
+          'label': 'W$week',
           'happiness': avgHap,
           'completionPercent': avgComp,
           'count': count,
           'items': days,
-          'weekStart': weekStart.toIso8601String().substring(0, 10),
-          'weekEnd': weekEnd.toIso8601String().substring(0, 10),
         });
-        cur = cur.add(const Duration(days: 7));
       }
-      return buckets;
+      return weeks;
     }
 
-    if (range == 'yearly') {
+    final byDate = <String, Map<String, dynamic>>{};
+    for (final e in raw) {
+      final d = e['date']?.toString();
+      if (d != null) byDate[d] = e;
+    }
+
+    if (range == 'monthly') {
+      // Show months of the current year: Jan, Feb, Mar, etc.
       final now = DateTime.now();
+      final currentYear = now.year;
       final months = List.generate(12, (i) => <Map<String, dynamic>>[]);
+      
       for (final e in raw) {
         final d = e['date']?.toString();
         if (d == null) continue;
         try {
           final dt = DateTime.parse(d);
-          final idx = dt.month - 1;
-          months[idx].add(e);
+          if (dt.year == currentYear) {
+            final idx = dt.month - 1;
+            months[idx].add(e);
+          }
         } catch (_) {}
       }
+      
       final labels = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
       ];
+      
       final res = <Map<String, dynamic>>[];
-      // Only include months up to the current month to avoid showing future months (e.g., Nov when it's Oct)
+      // Show all months up to current month for current year
       final lastMonthIndex = now.month - 1;
+      
       for (int m = 0; m <= lastMonthIndex; m++) {
         final slice = months[m];
         if (slice.isEmpty) {
           res.add({
             'label': labels[m],
+            'month': m + 1,
             'happiness': 0,
             'completionPercent': 0,
             'count': 0,
@@ -852,10 +861,79 @@ class _ProgressPageState extends State<ProgressPage>
             .fold(0, (a, b) => a + b);
         res.add({
           'label': labels[m],
+          'month': m + 1,
           'happiness': avgHap,
           'completionPercent': avgComp,
           'count': count,
           'items': slice.map((e) {
+            final d = e['date']?.toString() ?? '';
+            return {...e, 'date': d};
+          }).toList(),
+        });
+      }
+      return res;
+    }
+
+    if (range == 'yearly') {
+      // Show years: 2025, 2026, etc. with full year aggregation
+      final now = DateTime.now();
+      final startYear = 2025; // Start from 2025 when the app started
+      final currentYear = now.year;
+      
+      // Group data by year
+      final yearMap = <int, List<Map<String, dynamic>>>{};
+      for (int year = startYear; year <= currentYear; year++) {
+        yearMap[year] = [];
+      }
+      
+      for (final e in raw) {
+        final d = e['date']?.toString();
+        if (d == null) continue;
+        try {
+          final dt = DateTime.parse(d);
+          if (dt.year >= startYear && dt.year <= currentYear) {
+            yearMap[dt.year]!.add(e);
+          }
+        } catch (_) {}
+      }
+      
+      final res = <Map<String, dynamic>>[];
+      
+      // For each year from 2025 to current
+      for (int year = startYear; year <= currentYear; year++) {
+        final yearData = yearMap[year]!;
+        
+        if (yearData.isEmpty) {
+          res.add({
+            'label': year.toString(),
+            'year': year,
+            'happiness': 0,
+            'completionPercent': 0,
+            'count': 0,
+            'items': [],
+          });
+          continue;
+        }
+        
+        final totalHap = yearData
+            .map((x) => ((x['happiness'] ?? 0) as num).toDouble())
+            .fold(0.0, (double a, double b) => a + b);
+        final totalComp = yearData
+            .map((x) => ((x['completionPercent'] ?? 0) as num).toDouble())
+            .fold(0.0, (double a, double b) => a + b);
+        final avgHap = totalHap / yearData.length;
+        final avgComp = totalComp / yearData.length;
+        final count = yearData
+            .map((x) => (x['count'] ?? 0) as int)
+            .fold(0, (a, b) => a + b);
+        
+        res.add({
+          'label': year.toString(),
+          'year': year,
+          'happiness': avgHap,
+          'completionPercent': avgComp,
+          'count': count,
+          'items': yearData.map((e) {
             final d = e['date']?.toString() ?? '';
             return {...e, 'date': d};
           }).toList(),
@@ -879,7 +957,6 @@ class _ProgressPageState extends State<ProgressPage>
       return _buildDailyProgressView(display.first);
     }
 
-    final happinessSpots = <FlSpot>[];
     final completionBars = <BarChartGroupData>[];
 
     for (int i = 0; i < display.length; i++) {
@@ -892,10 +969,6 @@ class _ProgressPageState extends State<ProgressPage>
       final adjustedAnimation =
           (_chartAnimationValue - staggerDelay * 0.3).clamp(0.0, 1.0) / 0.7;
       final animatedComp = comp * adjustedAnimation.clamp(0.0, 1.0);
-
-      happinessSpots.add(
-        FlSpot(i.toDouble(), (hap * 10.0) * _chartAnimationValue),
-      );
 
       // Dynamic color based on completion percentage with brand colors
       Color barColor = primaryColor;
@@ -914,17 +987,20 @@ class _ProgressPageState extends State<ProgressPage>
         barColorLight = errorColor.withOpacity(0.6);
       }
 
+      final barWidth = _range == 'yearly'
+          ? 20.0
+          : _range == 'monthly'
+              ? 24.0
+              : 32.0;
+
       completionBars.add(
         BarChartGroupData(
           x: i,
           barRods: [
+            // Single completion bar with nice gradient
             BarChartRodData(
               toY: animatedComp,
-              width: _range == 'yearly'
-                  ? 18
-                  : _range == 'monthly'
-                  ? 22
-                  : 28,
+              width: barWidth,
               color: barColor,
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(6),
@@ -934,7 +1010,6 @@ class _ProgressPageState extends State<ProgressPage>
                 colors: [barColorLight, barColor],
                 begin: Alignment.bottomCenter,
                 end: Alignment.topCenter,
-                stops: const [0.0, 1.0],
               ),
               backDrawRodData: BackgroundBarChartRodData(
                 show: true,
@@ -957,19 +1032,23 @@ class _ProgressPageState extends State<ProgressPage>
     final showAchievement = avgCompletion >= 80 && _chartAnimationValue >= 1.0;
 
     // Determine label interval based on data count to avoid overlap
-    final labelInterval = display.length > 12 ? 2 : 1;
+    final labelInterval = display.length > 24 ? 3 : display.length > 12 ? 2 : 1;
 
     // Calculate dynamic bar width based on data count
     final barWidthBase = display.length <= 7
         ? 28.0
         : display.length <= 12
         ? 22.0
-        : 16.0;
+        : display.length <= 24
+        ? 16.0
+        : 12.0;
 
     final chartWidget = LayoutBuilder(
       builder: (context, constraints) {
+        // Get theme mode
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         // Responsive height based on screen width
-        final chartHeight = constraints.maxWidth < 400 ? 260.0 : 320.0;
+        final chartHeight = constraints.maxWidth < 400 ? 280.0 : 340.0;
 
         return SizedBox(
           height: chartHeight,
@@ -997,6 +1076,8 @@ class _ProgressPageState extends State<ProgressPage>
                   barTouchData: BarTouchData(
                     enabled: true,
                     touchCallback: (event, response) {
+                      // Only show modal on tap up to prevent multiple triggers
+                      if (event is! FlTapUpEvent) return;
                       if (response == null || response.spot == null) return;
                       final idx = response.spot!.touchedBarGroup.x.toInt();
                       final item = display[idx];
@@ -1017,8 +1098,9 @@ class _ProgressPageState extends State<ProgressPage>
                         final item = display[group.x.toInt()];
                         final pct = (item['completionPercent'] ?? 0)
                             .toStringAsFixed(0);
+                        final hap = ((item['happiness'] ?? 0) as num).toDouble();
 
-                        // Achievement-themed emoji based on completion
+                        // Show completion and wellness in tooltip
                         String emoji = '🎯';
                         final pctNum = double.tryParse(pct) ?? 0;
                         if (pctNum >= 80)
@@ -1033,7 +1115,7 @@ class _ProgressPageState extends State<ProgressPage>
                           emoji = '💪';
 
                         return BarTooltipItem(
-                          '$emoji  Completion: $pct%',
+                          '$emoji $pct%  •  💚 ${hap.toStringAsFixed(1)}/10',
                           GoogleFonts.manrope(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
@@ -1046,6 +1128,8 @@ class _ProgressPageState extends State<ProgressPage>
                     ),
                   ),
                   maxY: 100,
+                  minY: 0,
+                  groupsSpace: 0,
                   titlesData: FlTitlesData(
                     show: true,
                     bottomTitles: AxisTitles(
@@ -1063,61 +1147,18 @@ class _ProgressPageState extends State<ProgressPage>
                           String label = '';
 
                           if (item.containsKey('label')) {
-                            if (_range == 'monthly') {
-                              label = 'W${idx + 1}';
-                            } else {
-                              label = item['label'].toString();
-                            }
+                            label = item['label'].toString();
                           } else if (item.containsKey('day')) {
                             label = item['day'].toString();
                           } else if (item.containsKey('date')) {
                             final d = item['date'].toString();
-                            if (_range == 'weekly') {
-                              try {
-                                final dt = DateTime.parse(d);
-                                label = [
-                                  'Mon',
-                                  'Tue',
-                                  'Wed',
-                                  'Thu',
-                                  'Fri',
-                                  'Sat',
-                                  'Sun',
-                                ][dt.weekday - 1];
-                              } catch (_) {
-                                label = d.substring(5);
-                              }
-                            } else if (_range == 'monthly') {
-                              try {
-                                final dt = DateTime.parse(d);
-                                final day = dt.day;
-                                final weekNum = ((day - 1) ~/ 7) + 1;
-                                if ((day - 1) % 7 == 0 && weekNum <= 5) {
-                                  label = 'W$weekNum';
-                                }
-                              } catch (_) {
-                                label = '';
-                              }
-                            } else {
-                              try {
-                                final dt = DateTime.parse(d);
-                                label = [
-                                  'Jan',
-                                  'Feb',
-                                  'Mar',
-                                  'Apr',
-                                  'May',
-                                  'Jun',
-                                  'Jul',
-                                  'Aug',
-                                  'Sep',
-                                  'Oct',
-                                  'Nov',
-                                  'Dec',
-                                ][dt.month - 1];
-                              } catch (_) {
-                                label = d.substring(5, 7);
-                              }
+                            try {
+                              final dt = DateTime.parse(d);
+                              label = [
+                                'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun',
+                              ][dt.weekday - 1];
+                            } catch (_) {
+                              label = d.substring(5);
                             }
                           }
 
@@ -1126,9 +1167,9 @@ class _ProgressPageState extends State<ProgressPage>
                             child: Text(
                               label,
                               style: GoogleFonts.manrope(
-                                fontSize: _range == 'yearly' ? 10 : 11,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textSecondaryLight,
+                                fontSize: _range == 'yearly' ? 11 : 12,
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? Colors.white : Colors.black87,
                                 letterSpacing: -0.3,
                               ),
                               textAlign: TextAlign.center,
@@ -1139,29 +1180,23 @@ class _ProgressPageState extends State<ProgressPage>
                       ),
                     ),
                     leftTitles: AxisTitles(
-                      axisNameWidget: Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.trending_up,
-                              size: 12,
-                              color: primaryColor,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Completion %',
-                              style: GoogleFonts.manrope(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: primaryColor,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                          ],
+                      axisNameWidget: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: primaryColor.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'Happiness',
+                          style: GoogleFonts.manrope(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: primaryColor,
+                            letterSpacing: 0,
+                          ),
                         ),
                       ),
+                      axisNameSize: 32,
                       sideTitles: SideTitles(
                         showTitles: true,
                         interval: 25,
@@ -1175,41 +1210,35 @@ class _ProgressPageState extends State<ProgressPage>
                             child: Text(
                               '$v',
                               style: GoogleFonts.manrope(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textSecondaryLight,
-                                letterSpacing: -0.2,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? Colors.white : Colors.black,
+                                letterSpacing: 0,
                               ),
                             ),
                           );
                         },
-                        reservedSize: 32,
+                        reservedSize: 36,
                       ),
                     ),
                     rightTitles: AxisTitles(
-                      axisNameWidget: Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.favorite,
-                              size: 12,
-                              color: secondaryColor,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Wellness',
-                              style: GoogleFonts.manrope(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: secondaryColor,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                          ],
+                      axisNameWidget: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: secondaryColor.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'Wellness',
+                          style: GoogleFonts.manrope(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: secondaryColor,
+                            letterSpacing: 0,
+                          ),
                         ),
                       ),
+                      axisNameSize: 32,
                       sideTitles: SideTitles(
                         showTitles: true,
                         interval: 20,
@@ -1222,14 +1251,14 @@ class _ProgressPageState extends State<ProgressPage>
                             child: Text(
                               '$hap',
                               style: GoogleFonts.manrope(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w500,
-                                color: secondaryColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? Colors.white : secondaryColor,
                               ),
                             ),
                           );
                         },
-                        reservedSize: 24,
+                        reservedSize: 30,
                       ),
                     ),
                     topTitles: const AxisTitles(
@@ -1279,92 +1308,6 @@ class _ProgressPageState extends State<ProgressPage>
                   ),
                   borderData: FlBorderData(show: false),
                   alignment: BarChartAlignment.spaceAround,
-                ),
-              ),
-              // Line chart overlay for happiness/wellness trend
-              LineChart(
-                LineChartData(
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: happinessSpots,
-                      isCurved: true,
-                      curveSmoothness: 0.3,
-                      preventCurveOverShooting: true,
-                      color: secondaryColor,
-                      barWidth: 3,
-                      shadow: Shadow(
-                        color: secondaryColor.withOpacity(0.4),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        gradient: LinearGradient(
-                          colors: [
-                            secondaryColor.withOpacity(0.25),
-                            secondaryColor.withOpacity(0.1),
-                            secondaryColor.withOpacity(0.02),
-                            secondaryColor.withOpacity(0.0),
-                          ],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          stops: const [0.0, 0.35, 0.7, 1.0],
-                        ),
-                      ),
-                      dotData: FlDotData(
-                        show: true,
-                        getDotPainter: (spot, percent, barData, index) {
-                          final happiness = spot.y / 10;
-                          Color dotBorder = secondaryColor;
-                          if (happiness >= 8) {
-                            dotBorder = successColor;
-                          } else if (happiness >= 6) {
-                            dotBorder = AppColors.info;
-                          } else if (happiness < 4) {
-                            dotBorder = errorColor;
-                          }
-
-                          return FlDotCirclePainter(
-                            radius: 4,
-                            color: Colors.white,
-                            strokeWidth: 2.5,
-                            strokeColor: dotBorder,
-                          );
-                        },
-                      ),
-                      isStrokeCapRound: true,
-                    ),
-                  ],
-                  lineTouchData: LineTouchData(
-                    enabled: true,
-                    touchTooltipData: LineTouchTooltipData(
-                      tooltipRoundedRadius: 12,
-                      fitInsideHorizontally: true,
-                      fitInsideVertically: true,
-                      getTooltipColor: (spot) => AppColors.surfaceDark,
-                      getTooltipItems: (touchedSpots) {
-                        return touchedSpots.map((spot) {
-                          final happiness = (spot.y / 10).toStringAsFixed(1);
-                          return LineTooltipItem(
-                            '💚 Wellness: $happiness/10',
-                            GoogleFonts.manrope(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 11,
-                            ),
-                          );
-                        }).toList();
-                      },
-                    ),
-                    handleBuiltInTouches: true,
-                  ),
-                  titlesData: const FlTitlesData(show: false),
-                  gridData: const FlGridData(show: false),
-                  borderData: FlBorderData(show: false),
-                  maxY: 100,
-                  minY: 0,
-                  minX: -0.5,
-                  maxX: (display.length - 0.5),
                 ),
               ),
               // Achievement badge overlay
@@ -1433,8 +1376,30 @@ class _ProgressPageState extends State<ProgressPage>
       },
     );
 
-    // Return chart only (removed smart insights)
-    return chartWidget;
+    // Return chart with legend
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return Column(
+          children: [
+            chartWidget,
+            const SizedBox(height: 12),
+            // Tip text
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                'Tap bars for details',
+                style: GoogleFonts.manrope(
+                  fontSize: 11,
+                  color: Colors.grey[500],
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _showDetailModal(
@@ -3301,10 +3266,9 @@ class _ProgressPageState extends State<ProgressPage>
                   ),
                 ),
                 const SizedBox(height: 14),
-                // App list
-                ..._socialMediaApps.map(
-                  (app) => _buildAppUsageItem(app, isDark),
-                ),
+                // Social Media Usage Chart
+                if (_socialMediaApps.isNotEmpty)
+                  _buildSocialMediaChart(isDark),
               ],
             ),
         ],
@@ -3378,48 +3342,25 @@ class _ProgressPageState extends State<ProgressPage>
     final minutes = (app['minutes'] as num?)?.toDouble() ?? 0.0;
     final hours = (minutes / 60.0);
 
-    // Get app-specific icon and color
+    // Get app-specific icon and color (only for allowed apps)
     IconData appIcon;
     Color appColor;
 
     final lowerName = appName.toLowerCase();
-    if (lowerName.contains('instagram')) {
+    if (lowerName == 'instagram') {
       appIcon = Icons.camera_alt;
       appColor = Colors.pink;
-    } else if (lowerName.contains('facebook')) {
+    } else if (lowerName == 'facebook') {
       appIcon = Icons.facebook;
       appColor = Colors.blue;
-    } else if (lowerName.contains('twitter') || lowerName.contains('x')) {
-      appIcon = Icons.alternate_email;
-      appColor = Colors.lightBlue;
-    } else if (lowerName.contains('tiktok')) {
-      appIcon = Icons.music_note;
-      appColor = Colors.black87;
-    } else if (lowerName.contains('youtube')) {
+    } else if (lowerName == 'youtube') {
       appIcon = Icons.play_circle_fill;
       appColor = Colors.red;
-    } else if (lowerName.contains('snapchat')) {
+    } else if (lowerName == 'snapchat') {
       appIcon = Icons.flash_on;
       appColor = Colors.yellow.shade700;
-    } else if (lowerName.contains('whatsapp')) {
-      appIcon = Icons.chat;
-      appColor = Colors.green;
-    } else if (lowerName.contains('telegram')) {
-      appIcon = Icons.send;
-      appColor = Colors.lightBlue;
-    } else if (lowerName.contains('reddit')) {
-      appIcon = Icons.reddit;
-      appColor = Colors.deepOrange;
-    } else if (lowerName.contains('linkedin')) {
-      appIcon = Icons.work;
-      appColor = Colors.blue.shade800;
-    } else if (lowerName.contains('pinterest')) {
-      appIcon = Icons.push_pin;
-      appColor = Colors.red.shade700;
-    } else if (lowerName.contains('discord')) {
-      appIcon = Icons.headphones;
-      appColor = Colors.indigo;
     } else {
+      // Should not reach here due to filtering, but fallback just in case
       appIcon = Icons.apps;
       appColor = Colors.blueGrey;
     }
@@ -3727,5 +3668,291 @@ class _ProgressPageState extends State<ProgressPage>
   /// Legacy: Wearable aggregates no longer used - replaced by Health Connect
   Future<void> _loadWearableAggregates() async {
     // No longer used - Health Connect provides health data
+  }
+
+  /// Build Social Media Usage Bar Chart
+  Widget _buildSocialMediaChart(bool isDark) {
+    // Limit to top 5 apps for better visibility
+    final topApps = _socialMediaApps.take(5).toList();
+    
+    return Container(
+      height: 280,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.grey[800]?.withAlpha(120) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.grey[700]! : Colors.grey[200]!,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'App Usage Breakdown',
+            style: GoogleFonts.manrope(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '24-hour period (12 AM - 11:59 PM)',
+            style: GoogleFonts.manrope(
+              fontSize: 11,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: BarChart(
+              BarChartData(
+                alignment: BarChartAlignment.spaceAround,
+                maxY: topApps.isEmpty ? 5 : (topApps.map((app) => (app['minutes'] as num?)?.toDouble() ?? 0).reduce((a, b) => a > b ? a : b) / 60) * 1.2,
+                barTouchData: BarTouchData(
+                  touchTooltipData: BarTouchTooltipData(
+                    tooltipRoundedRadius: 8,
+                    getTooltipColor: (group) => Colors.orange.shade700,
+                    getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                      final app = topApps[group.x.toInt()];
+                      final minutes = (app['minutes'] as num?)?.toDouble() ?? 0;
+                      final hours = (minutes / 60).floor();
+                      final mins = (minutes % 60).round();
+                      return BarTooltipItem(
+                        '${app['appName']}\n${hours}h ${mins}m',
+                        GoogleFonts.manrope(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 11,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                titlesData: FlTitlesData(
+                  show: true,
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      getTitlesWidget: (value, meta) {
+                        final idx = value.toInt();
+                        if (idx >= 0 && idx < topApps.length) {
+                          final appName = topApps[idx]['appName'].toString();
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              appName.length > 10 ? '${appName.substring(0, 10)}...' : appName,
+                              style: GoogleFonts.manrope(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.white70 : Colors.black87,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          );
+                        }
+                        return const SizedBox();
+                      },
+                      reservedSize: 40,
+                    ),
+                  ),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 40,
+                      getTitlesWidget: (value, meta) {
+                        return Text(
+                          '${value.toStringAsFixed(1)}h',
+                          style: GoogleFonts.manrope(
+                            fontSize: 10,
+                            color: isDark ? Colors.white70 : Colors.black87,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                ),
+                gridData: const FlGridData(show: false),
+                borderData: FlBorderData(show: false),
+                barGroups: List.generate(topApps.length, (index) {
+                  final minutes = (topApps[index]['minutes'] as num?)?.toDouble() ?? 0;
+                  final hours = minutes / 60;
+                  return BarChartGroupData(
+                    x: index,
+                    barRods: [
+                      BarChartRodData(
+                        toY: hours,
+                        width: 24,
+                        color: Colors.orange.shade600,
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(6),
+                          topRight: Radius.circular(6),
+                        ),
+                        gradient: LinearGradient(
+                          colors: [Colors.orange.shade400, Colors.red.shade600],
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                        ),
+                      ),
+                    ],
+                  );
+                }),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build Health Connect Data Bar Chart
+  Widget _buildHealthConnectChart(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final data = _healthConnectData!;
+    
+    // Prepare data for chart
+    final chartData = <Map<String, dynamic>>[];
+    if (data.steps != null) {
+      chartData.add({'label': 'Steps', 'value': data.steps!.toDouble() / 100, 'icon': Icons.directions_walk, 'color': Colors.blue, 'unit': ''});
+    }
+    if (data.heartRate != null) {
+      chartData.add({'label': 'Heart\nRate', 'value': data.heartRate!.toDouble(), 'icon': Icons.favorite, 'color': Colors.red, 'unit': 'bpm'});
+    }
+    if (data.calories != null) {
+      chartData.add({'label': 'Calories', 'value': data.calories!.toDouble() / 10, 'icon': Icons.local_fire_department, 'color': Colors.orange, 'unit': ''});
+    }
+    if (data.sleepHours != null) {
+      chartData.add({'label': 'Sleep', 'value': data.sleepHours! * 10, 'icon': Icons.bedtime, 'color': Colors.purple, 'unit': 'hrs'});
+    }
+
+    if (chartData.isEmpty) return const SizedBox();
+
+    return Container(
+      height: 240,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.grey[800]?.withAlpha(120) : Colors.grey[50],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.grey[700]! : Colors.grey[200]!,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Health Metrics',
+            style: GoogleFonts.manrope(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '24-hour period (12 AM - 11:59 PM)',
+            style: GoogleFonts.manrope(
+              fontSize: 11,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: BarChart(
+              BarChartData(
+                alignment: BarChartAlignment.spaceAround,
+                maxY: 100,
+                barTouchData: BarTouchData(
+                  touchTooltipData: BarTouchTooltipData(
+                    tooltipRoundedRadius: 8,
+                    getTooltipColor: (group) => chartData[group.x.toInt()]['color'],
+                    getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                      final item = chartData[group.x.toInt()];
+                      String valueStr = '';
+                      if (item['label'] == 'Steps') {
+                        valueStr = '${data.steps}';
+                      } else if (item['label'] == 'Heart\nRate') {
+                        valueStr = '${data.heartRate} bpm';
+                      } else if (item['label'] == 'Calories') {
+                        valueStr = '${data.calories} kcal';
+                      } else if (item['label'] == 'Sleep') {
+                        valueStr = '${data.sleepHours!.toStringAsFixed(1)} hrs';
+                      }
+                      return BarTooltipItem(
+                        valueStr,
+                        GoogleFonts.manrope(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 11,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                titlesData: FlTitlesData(
+                  show: true,
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      getTitlesWidget: (value, meta) {
+                        final idx = value.toInt();
+                        if (idx >= 0 && idx < chartData.length) {
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              chartData[idx]['label'],
+                              style: GoogleFonts.manrope(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: chartData[idx]['color'],
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          );
+                        }
+                        return const SizedBox();
+                      },
+                      reservedSize: 40,
+                    ),
+                  ),
+                  leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                ),
+                gridData: const FlGridData(show: false),
+                borderData: FlBorderData(show: false),
+                barGroups: List.generate(chartData.length, (index) {
+                  return BarChartGroupData(
+                    x: index,
+                    barRods: [
+                      BarChartRodData(
+                        toY: chartData[index]['value'],
+                        width: 40,
+                        color: chartData[index]['color'],
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(8),
+                          topRight: Radius.circular(8),
+                        ),
+                        gradient: LinearGradient(
+                          colors: [
+                            (chartData[index]['color'] as Color).withOpacity(0.6),
+                            chartData[index]['color'],
+                          ],
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                        ),
+                      ),
+                    ],
+                  );
+                }),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

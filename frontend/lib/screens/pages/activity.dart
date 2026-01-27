@@ -157,7 +157,7 @@ class _ActivityPageState extends State<ActivityPage> {
             Icon(Icons.check_circle, color: Colors.green.shade700, size: 18),
             const SizedBox(width: 6),
             Text(
-              "Done",
+              "Completed",
               style: GoogleFonts.manrope(
                 fontWeight: FontWeight.w600,
                 fontSize: 14,
@@ -204,10 +204,23 @@ class _ActivityPageState extends State<ActivityPage> {
 
             if (!mounted) return;
 
-            // Show completion dialog with share option
-            _showCompletionDialog(activity);
-
+            // Trigger refresh to update the UI
             notifierBefore.triggerRefresh();
+
+            // Show simple success snackbar
+            messengerBefore?.showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.check_circle, color: Colors.white),
+                    const SizedBox(width: 12),
+                    Text('Activity completed! 🎉'),
+                  ],
+                ),
+                backgroundColor: Colors.green.shade600,
+                duration: const Duration(seconds: 2),
+              ),
+            );
           } catch (e) {
             final errorStr = e.toString();
             debugPrint('[Activity] Error completing activity: $errorStr');
@@ -483,7 +496,11 @@ class _ActivityPageState extends State<ActivityPage> {
                                       _isMindfulnessActivity(activity) ||
                                               _isScreenControlActivity(activity)
                                           ? 'Practice'
-                                          : 'Details',
+                                          : (_isLuxActivity(activity)
+                                              ? 'Measure'
+                                              : (activity['title'] == 'Deep work'
+                                                  ? 'Focus'
+                                                  : 'Details')),
                                       style: GoogleFonts.manrope(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w700,
@@ -1975,11 +1992,18 @@ class _ActivityPageState extends State<ActivityPage> {
   bool _isDeepWorkActivity(Map<String, dynamic> activity) {
     final title = (activity['title'] ?? '').toString().toLowerCase();
     final category = (activity['category'] ?? '').toString().toLowerCase();
+    
+    // Exclude minor work activities from deep work navigation
+    if (title.contains('minor work') || 
+        title.contains('administrative tasks') ||
+        title.contains('sending emails')) {
+      return false;
+    }
+    
     return title.contains('deep work') ||
         title.contains('deep study') ||
         title.contains('focus session') ||
-        category == 'deep work' ||
-        category == 'productivity';
+        category == 'deep work';
   }
 
   /// Detect if the activity pertains to light intensity / lux measurement
