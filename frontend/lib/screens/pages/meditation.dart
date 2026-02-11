@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:audioplayers/audioplayers.dart';
-import '../../services/audio_streaming_service.dart';
 
 class MeditationScreen extends StatefulWidget {
   const MeditationScreen({super.key});
@@ -29,13 +28,12 @@ class _MeditationScreenState extends State<MeditationScreen> {
   final AudioPlayer _ambiancePlayer = AudioPlayer();
   final AudioPlayer _voicePlayer = AudioPlayer();
   final AudioPlayer _bellPlayer = AudioPlayer();
-  final AudioStreamingService _audioService = AudioStreamingService();
 
   // Available ambiance sounds
   final List<Map<String, dynamic>> _ambianceSounds = [
     {'name': 'Breeze', 'icon': '🌬️', 'asset': 'sounds/Breeze.mp3'},
     {'name': 'Forest', 'icon': '🌲', 'asset': 'sounds/Forest_sound.mp3'},
-    {'name': 'Rain', 'icon': '💧', 'asset': 'sounds/Rain sound.mp3'},
+    {'name': 'Rain', 'icon': '💧', 'asset': 'sounds/Rain_sound.mp3'},
   ];
 
   // Available guidance voices
@@ -151,21 +149,16 @@ class _MeditationScreenState extends State<MeditationScreen> {
     try {
       await _ambiancePlayer.setVolume(_volume);
       await _ambiancePlayer.setReleaseMode(ReleaseMode.loop);
-      
-      // Get audio file path (download if needed)
-      final audioPath = await _audioService.getAudioPath(sound['asset']);
-      if (audioPath != null) {
-        await _ambiancePlayer.play(DeviceFileSource(audioPath));
-      } else {
-        debugPrint('Failed to load audio file');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to load audio. Check connection.')),
-          );
-        }
-      }
+
+      // Play from bundled assets
+      await _ambiancePlayer.play(AssetSource(sound['asset']));
     } catch (e) {
       debugPrint('Error playing ambiance: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error playing audio: $e')),
+        );
+      }
     }
   }
 
@@ -175,21 +168,17 @@ class _MeditationScreenState extends State<MeditationScreen> {
     try {
       await _voicePlayer.setVolume(_volume);
       await _voicePlayer.setReleaseMode(ReleaseMode.loop);
-      
-      // Get audio file path (download if needed)
-      final audioPath = await _audioService.getAudioPath('sounds/Guided Body Scan Meditation.mp3');
-      if (audioPath != null) {
-        await _voicePlayer.play(DeviceFileSource(audioPath));
-      } else {
-        debugPrint('Failed to load voice guidance');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to load guided meditation. Check connection.')),
-          );
-        }
-      }
+
+      // Play from bundled assets
+      await _voicePlayer
+          .play(AssetSource('sounds/Guided_Body_Scan_Meditation.mp3'));
     } catch (e) {
       debugPrint('Error playing voice: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error playing audio: $e')),
+        );
+      }
     }
   }
 

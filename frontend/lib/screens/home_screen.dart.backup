@@ -1,0 +1,669 @@
+import 'package:flutter/material.dart';
+import 'package:camera/camera.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
+import '../models/user_profile.dart';
+import 'camera_page.dart';
+
+class HomeScreen extends StatefulWidget {
+  final List<CameraDescription> cameras;
+  final UserProfile profile;
+
+  const HomeScreen({Key? key, required this.cameras, required this.profile}) : super(key: key);
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final String _apiKey = '';
+  List<String> _scannedFoods = [];
+  Map<String, double> _totalNutrients = {
+    'calories': 0,
+    'protein': 0,
+    'carbohydrates': 0,
+    'fat': 0,
+    'fiber': 0,
+    'addedSugar': 0,
+    'transFat': 0,
+    'saturatedFat': 0,
+    'refinedCarbs': 0,
+  };
+
+  void _recalculateNutrients() {
+    // Reset totals
+    _totalNutrients = {
+      'calories': 0,
+      'protein': 0,
+      'carbohydrates': 0,
+      'fat': 0,
+      'fiber': 0,
+      'addedSugar': 0,
+      'transFat': 0,
+      'saturatedFat': 0,
+      'refinedCarbs': 0,
+    };
+    
+    // Recalculate from all scanned foods
+    for (final foodInfo in _scannedFoods) {
+      _extractAndAddNutrients(foodInfo);
+    }
+  }
+
+  // Get daily nutrient requirements
+  Map<String, double> get _dailyRequirements => widget.profile.dailyNutrientRequirements;
+
+  // Calculate health limits using Gemini AI
+  Map<String, double> get _healthLimits {
+    return _aiCalculatedLimits;
+  }
+
+  Map<String, double> _aiCalculatedLimits = {
+    'addedSugar': 30.0, // Default values, will be updated by AI
+    'transFat': 2.0,
+    'saturatedFat': 20.0,
+    'refinedCarbs': 50.0,
+  };
+
+  bool _isCalculatingLimits = false;
+
+  Future<void> _calculateHealthLimitsWithAI() async {
+    setState(() {
+      print("Profile data: Weight=${widget.profile.weight}, Height=${widget.profile.height}, Age=${widget.profile.age}, Gender=${widget.profile.gender}, Activity=${widget.profile.activityLevel}");
+      _isCalculatingLimits = true;
+    });
+    
+    try {
+      final model = GenerativeModel(
+        model: 'gemini-2.5-flash',
+        apiKey: _apiKey,
+      );
+
+      final profileInfo = '''
+      User Profile:
+      - Current Weight: ${widget.profile.weight}kg
+      - Height: ${widget.profile.height}cm
+      - Age: ${widget.profile.age} years
+      - Gender: ${widget.profile.gender}
+      - Activity Level: ${widget.profile.activityLevel}
+      
+      Please calculate personalized health limits based on this profile:
+      1. Calculate ideal weight using medical standards (consider height, gender, age)
+      2. Determine target weight (consider current vs ideal, age factors)
+      3. Calculate daily limits for:
+         - Added Sugar (WHO recommendations adjusted for weight/gender)
+         - Trans Fat (WHO recommendations)
+         - Saturated Fat (AHA recommendations)
+         - Refined Carbs (based on activity level and target weight)
+      
+      Return only numerical values in this format:
+      ADDED_SUGAR: [value in grams]
+      TRANS_FAT: [value in grams]
+      SATURATED_FAT: [value in grams]
+      REFINED_CARBS: [value in grams]
+      ''';
+
+      final response = await model.generateContent([
+        Content.text(profileInfo)
+      ]);
+
+      final aiResponse = response.text ?? '';
+      print("AI Response: $aiResponse");
+      
+      // Parse AI response
+      final sugarMatch = RegExp(r'ADDED_SUGAR:\s*([\d.]+)').firstMatch(aiResponse);
+      final transFatMatch = RegExp(r'TRANS_FAT:\s*([\d.]+)').firstMatch(aiResponse);
+      final satFatMatch = RegExp(r'SATURATED_FAT:\s*([\d.]+)').firstMatch(aiResponse);
+      final refinedCarbsMatch = RegExp(r'REFINED_CARBS:\s*([\d.]+)').firstMatch(aiResponse);
+
+      setState(() {
+      print("Profile data: Weight=${widget.profile.weight}, Height=${widget.profile.height}, Age=${widget.profile.age}, Gender=${widget.profile.gender}, Activity=${widget.profile.activityLevel}");
+        if (sugarMatch != null) {
+          _aiCalculatedLimits['addedSugar'] = double.parse(sugarMatch.group(1)!);
+        }
+        if (transFatMatch != null) {
+          _aiCalculatedLimits['transFat'] = double.parse(transFatMatch.group(1)!);
+        }
+        if (satFatMatch != null) {
+          _aiCalculatedLimits['saturatedFat'] = double.parse(satFatMatch.group(1)!);
+        }
+        if (refinedCarbsMatch != null) {
+          _aiCalculatedLimits['refinedCarbs'] = double.parse(refinedCarbsMatch.group(1)!);
+        }
+        _isCalculatingLimits = false;
+      print("AI Limits updated: $_aiCalculatedLimits");
+      });
+
+    } catch (e) {
+      // print('Error calculating health limits with AI: $e');
+      setState(() {
+      print("Profile data: Weight=${widget.profile.weight}, Height=${widget.profile.height}, Age=${widget.profile.age}, Gender=${widget.profile.gender}, Activity=${widget.profile.activityLevel}");
+        _isCalculatingLimits = false;
+      });
+    }
+  }
+
+  void _navigateToCamera() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CameraPage(
+          cameras: widget.cameras,
+          apiKey: _apiKey,
+          onFoodAnalyzed: (nutritionInfo) {
+            setState(() {
+      print("Profile data: Weight=${widget.profile.weight}, Height=${widget.profile.height}, Age=${widget.profile.age}, Gender=${widget.profile.gender}, Activity=${widget.profile.activityLevel}");
+              _scannedFoods.add(nutritionInfo);
+              _extractAndAddNutrients(nutritionInfo);
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  void _extractAndAddNutrients(String nutritionInfo) {
+    // Simple extraction - look for nutrient values in the text
+    final caloriesMatch = RegExp(r'(\d+)\s*kcal').firstMatch(nutritionInfo);
+    final proteinMatch = RegExp(r'(\d+)\s*g').allMatches(nutritionInfo);
+    final carbMatch = RegExp(r'Carbohydrates[:\s]*(\d+)g').firstMatch(nutritionInfo);
+    final fatMatch = RegExp(r'Fat[:\s]*(\d+)g').firstMatch(nutritionInfo);
+    final fiberMatch = RegExp(r'Fiber[:\s]*(\d+)g').firstMatch(nutritionInfo);
+    final sugarMatch = RegExp(r'(?:Sugar|Added Sugar)[:\s]*(\d+)g').firstMatch(nutritionInfo);
+    final transFatMatch = RegExp(r'(?:Trans Fat|Transfat)[:\s]*(\d+)g').firstMatch(nutritionInfo);
+    final satFatMatch = RegExp(r'(?:Saturated Fat|Sat\. Fat)[:\s]*(\d+)g').firstMatch(nutritionInfo);
+    final refinedCarbMatch = RegExp(r'(?:Refined Carbs|Refined Carbohydrates)[:\s]*(\d+)g').firstMatch(nutritionInfo);
+    
+    setState(() {
+      print("Profile data: Weight=${widget.profile.weight}, Height=${widget.profile.height}, Age=${widget.profile.age}, Gender=${widget.profile.gender}, Activity=${widget.profile.activityLevel}");
+      if (caloriesMatch != null) {
+        _totalNutrients['calories'] = (_totalNutrients['calories'] ?? 0) + double.parse(caloriesMatch.group(1)!);
+      }
+      if (proteinMatch.isNotEmpty) {
+        _totalNutrients['protein'] = (_totalNutrients['protein'] ?? 0) + double.parse(proteinMatch.first.group(1)!);
+      }
+      if (carbMatch != null) {
+        _totalNutrients['carbohydrates'] = (_totalNutrients['carbohydrates'] ?? 0) + double.parse(carbMatch.group(1)!);
+      }
+      if (fatMatch != null) {
+        _totalNutrients['fat'] = (_totalNutrients['fat'] ?? 0) + double.parse(fatMatch.group(1)!);
+      }
+      if (fiberMatch != null) {
+        _totalNutrients['fiber'] = (_totalNutrients['fiber'] ?? 0) + double.parse(fiberMatch.group(1)!);
+      }
+      if (sugarMatch != null) {
+        _totalNutrients['addedSugar'] = (_totalNutrients['addedSugar'] ?? 0) + double.parse(sugarMatch.group(1)!);
+      }
+      if (transFatMatch != null) {
+        _totalNutrients['transFat'] = (_totalNutrients['transFat'] ?? 0) + double.parse(transFatMatch.group(1)!);
+      }
+      if (satFatMatch != null) {
+        _totalNutrients['saturatedFat'] = (_totalNutrients['saturatedFat'] ?? 0) + double.parse(satFatMatch.group(1)!);
+      }
+      if (refinedCarbMatch != null) {
+        _totalNutrients['refinedCarbs'] = (_totalNutrients['refinedCarbs'] ?? 0) + double.parse(refinedCarbMatch.group(1)!);
+      }
+    });
+  }
+
+  double _getProgressPercentage(String nutrient) {
+    final daily = _dailyRequirements[nutrient] ?? 1;
+    final consumed = _totalNutrients[nutrient] ?? 0;
+    return (consumed / daily * 100).clamp(0.0, 100.0);
+  }
+
+  Widget _buildNutrientBox(String name, String emoji, int consumed, int daily, String unit, Color color) {
+    final percentage = _getProgressPercentage(name.toLowerCase());
+    final isOverGoal = percentage >= 100;
+    
+    return Container(
+      margin: const EdgeInsets.all(4.0),
+      padding: const EdgeInsets.all(12.0),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isOverGoal ? Colors.red : color.withOpacity(0.3),
+          width: 2,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                emoji,
+                style: const TextStyle(fontSize: 20),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color.fromARGB(255, 13, 71, 161),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '$consumed / $daily $unit',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: isOverGoal ? Colors.red : Color.fromARGB(255, 13, 71, 161),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            height: 8,
+            decoration: BoxDecoration(
+              color: isOverGoal ? Colors.red : color,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: percentage / 100,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isOverGoal ? Color.fromARGB(255, 139, 0, 0) : Color.fromARGB(255, 13, 71, 161),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${percentage.round()}%',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: isOverGoal ? Colors.red : Color.fromARGB(255, 13, 71, 161),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHealthLimitCard(String label, double current, double limit, String unit) {
+    final percentage = (current / limit * 100).clamp(0.0, 100.0);
+    final isOverLimit = percentage >= 100;
+    
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16.0),
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color.fromARGB(255, 117, 117, 117),
+                ),
+              ),
+              Text(
+                '${percentage.round()}%',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color.fromARGB(255, 117, 117, 117),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                current.toStringAsFixed(1),
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: Color.fromARGB(255, 33, 33, 33),
+                  height: 1.0,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4.0),
+                child: Text(
+                  '/ ${limit.toInt()}$unit',
+                  style: TextStyle(
+                    fontSize: 20,
+                    color: Color.fromARGB(255, 189, 189, 189),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            height: 8,
+            decoration: BoxDecoration(
+              color: Color.fromARGB(255, 158, 158, 158),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: percentage / 100,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isOverLimit ? Color.fromARGB(255, 139, 0, 0) : Color.fromARGB(255, 158, 158, 158),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateHealthLimitsWithAI(); // Calculate limits using AI when app starts
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Nutrition Tracker'),
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // Daily Nutrient Requirements Card
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(16.0),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.person_outline, color: Colors.blue.shade700),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Your Daily Nutrient Requirements',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue.shade900,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 20),
+                  Text(
+                    '🔥 Calories: ${_dailyRequirements['calories']?.round()} kcal\n'
+                    '🥩 Protein: ${_dailyRequirements['protein']?.round()}g\n'
+                    '🍞 Carbs: ${_dailyRequirements['carbohydrates']?.round()}g\n'
+                    '🥑 Fat: ${_dailyRequirements['fat']?.round()}g\n'
+                    '🌾 Fiber: ${_dailyRequirements['fiber']?.round()}g\n'
+                    '💧 Water: ${(_dailyRequirements['water']! * 1000).round()}ml',
+                    style: const TextStyle(fontSize: 15, height: 1.5),
+                  ),
+                ],
+              ),
+            ),
+
+            // Health Limits Monitoring Section (replacing nutrient progress)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(16.0),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.warning, color: Colors.red.shade700),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: Icon(Icons.refresh, size: 20),
+                        onPressed: () {
+                          print("Manual refresh triggered");
+                          _calculateHealthLimitsWithAI();
+                        },
+                        tooltip: "Recalculate based on profile",
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'HEALTH LIMITS MONITORING',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red.shade900,
+                    "BASED ON YOUR PROFILE: ${widget.profile.weight}kg, ${widget.profile.height}cm, ${widget.profile.age}y, ${widget.profile.gender}",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.red.shade600,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "AI-Calculated Limits Based On:",
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Weight: ${widget.profile.weight}kg | Height: ${widget.profile.height}cm | Age: ${widget.profile.age}y | Gender: ${widget.profile.gender} | Activity: ${widget.profile.activityLevel}",
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.red.shade500,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.red.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildHealthLimitCard('ADDED SUGAR', _totalNutrients['addedSugar'] ?? 0.0, _healthLimits['addedSugar'] ?? 30.0, 'G'),
+                  _buildHealthLimitCard('TRANS FAT', _totalNutrients['transFat'] ?? 0.0, _healthLimits['transFat'] ?? 2.0, 'G'),
+                  _buildHealthLimitCard('SAT. FAT', _totalNutrients['saturatedFat'] ?? 0.0, _healthLimits['saturatedFat'] ?? 20.0, 'G'),
+                  _buildHealthLimitCard('REFINED CARBS', _totalNutrients['refinedCarbs'] ?? 0.0, _healthLimits['refinedCarbs'] ?? 50.0, 'G'),
+                ],
+              ),
+            ),
+
+            // Health Limits Section
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(16.0),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.warning, color: Colors.red.shade700),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: Icon(Icons.refresh, size: 20),
+                        onPressed: () {
+                          print("Manual refresh triggered");
+                          _calculateHealthLimitsWithAI();
+                        },
+                        tooltip: "Recalculate based on profile",
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'HEALTH LIMITS MONITORING',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red.shade900,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'TRY TO KEEP THESE PERCENTAGES LOW',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.red.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildHealthLimitCard('ADDED SUGAR', _totalNutrients['addedSugar'] ?? 0.0, _healthLimits['addedSugar'] ?? 30.0, 'G'),
+                  _buildHealthLimitCard('TRANS FAT', _totalNutrients['transFat'] ?? 0.0, _healthLimits['transFat'] ?? 2.0, 'G'),
+                  _buildHealthLimitCard('SAT. FAT', _totalNutrients['saturatedFat'] ?? 0.0, _healthLimits['saturatedFat'] ?? 20.0, 'G'),
+                  _buildHealthLimitCard('REFINED CARBS', _totalNutrients['refinedCarbs'] ?? 0.0, _healthLimits['refinedCarbs'] ?? 50.0, 'G'),
+                ],
+              ),
+            ),
+
+            // Camera Button
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.all(16.0),
+              child: ElevatedButton.icon(
+                onPressed: _navigateToCamera,
+                icon: const Icon(Icons.camera_alt, size: 30),
+                label: const Text('Scan Food', style: TextStyle(fontSize: 18)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+
+            // Scanned Foods Section
+            if (_scannedFoods.isNotEmpty) ...[
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.all(16.0),
+                child: Text(
+                  'Scanned Foods',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green.shade900,
+                  ),
+                ),
+              ),
+              ...List.generate(_scannedFoods.length, (index) {
+                return Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  padding: const EdgeInsets.all(16.0),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.restaurant, color: Colors.green.shade700),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Food ${index + 1}',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green.shade900,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 16),
+                      Text(
+                        _scannedFoods[index],
+                        style: const TextStyle(fontSize: 14, height: 1.4),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+
+            // Empty State
+            if (_scannedFoods.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(40.0),
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.no_food,
+                      size: 80,
+                      color: Color.fromARGB(255, 189, 189, 189),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'No foods scanned yet',
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: Color.fromARGB(255, 117, 117, 117),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Tap the camera button to start scanning',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Color.fromARGB(255, 158, 158, 158),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}

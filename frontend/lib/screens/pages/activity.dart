@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:camera/camera.dart';
 import '../../services/api.dart';
 import '../../services/completion_store.dart';
 import '../../services/local_cache.dart';
@@ -12,12 +15,16 @@ import '../../services/wellness_activity_service.dart';
 import '../../services/progress_calculator_service.dart';
 import '../../config/api.dart' as cfg;
 import '../../theme/app_theme.dart';
+import '../../models/user_profile.dart';
 import 'progress_refresh_notifier.dart';
 import 'package:provider/provider.dart';
 import '../../models/lux.dart';
 import 'meditation.dart';
 import '../../models/deepWork.dart';
 import '../../models/screen_control.dart';
+import '../nutrition/nutrition_navigator_screen.dart';
+import '../profile_setup_page.dart';
+import 'explorer.dart';
 
 class ActivityPage extends StatefulWidget {
   const ActivityPage({super.key});
@@ -141,6 +148,14 @@ class _ActivityPageState extends State<ActivityPage> {
     final activityId =
         activity['id'] ?? title.toLowerCase().replaceAll(' ', '_');
     final completed = _completedCache[activityId] ?? false;
+    final isMindfulness = _isMindfulnessActivity(activity);
+    final isScreenControl = _isScreenControlActivity(activity);
+    final isExplorer = _isNatureExplorerActivity(activity);
+    final isNutrition = _isNutritionActivity(activity);
+    final isLux = _isLuxActivity(activity);
+    final usePracticeStyle =
+        isMindfulness || isScreenControl || isExplorer || isLux;
+    final useDietStyle = isNutrition && !usePracticeStyle;
 
     Widget actionButton;
     if (completed) {
@@ -464,16 +479,18 @@ class _ActivityPageState extends State<ActivityPage> {
                                   vertical: 8,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: _isMindfulnessActivity(activity) ||
-                                          _isScreenControlActivity(activity)
+                                  color: (usePracticeStyle || useDietStyle)
                                       ? const Color(0xFFFFF3E0)
-                                      : const Color(0xFFF5F5F5),
+                                      : (useDietStyle
+                                          ? Colors.green.shade50
+                                          : const Color(0xFFF5F5F5)),
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
-                                    color: _isMindfulnessActivity(activity) ||
-                                            _isScreenControlActivity(activity)
+                                    color: (usePracticeStyle || useDietStyle)
                                         ? const Color(0xFFD7CCC8)
-                                        : Colors.grey.shade300,
+                                        : (useDietStyle
+                                            ? Colors.green.shade200
+                                            : Colors.grey.shade300),
                                     width: 1,
                                   ),
                                 ),
@@ -481,35 +498,38 @@ class _ActivityPageState extends State<ActivityPage> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
-                                      _isMindfulnessActivity(activity) ||
-                                              _isScreenControlActivity(activity)
+                                      usePracticeStyle
                                           ? Icons.play_arrow_rounded
                                           : Icons.info_outline,
-                                      color: _isMindfulnessActivity(activity) ||
-                                              _isScreenControlActivity(activity)
+                                      color: usePracticeStyle
                                           ? const Color(0xFF800000)
-                                          : primaryColor,
+                                          : (useDietStyle
+                                              ? const Color(0xFF800000)
+                                              : primaryColor),
                                       size: 16,
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
-                                      _isMindfulnessActivity(activity) ||
-                                              _isScreenControlActivity(activity)
-                                          ? 'Practice'
-                                          : (_isLuxActivity(activity)
-                                              ? 'Measure'
-                                              : (activity['title'] == 'Deep work'
+                                      usePracticeStyle
+                                          ? (isExplorer
+                                              ? 'Explore'
+                                              : (isLux
+                                                  ? 'Measure'
+                                                  : 'Practice'))
+                                          : (useDietStyle
+                                              ? 'Diet'
+                                              : (activity['title'] ==
+                                                      'Deep work'
                                                   ? 'Focus'
                                                   : 'Details')),
                                       style: GoogleFonts.manrope(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w700,
-                                        color:
-                                            _isMindfulnessActivity(activity) ||
-                                                    _isScreenControlActivity(
-                                                        activity)
+                                        color: usePracticeStyle
+                                            ? const Color(0xFF800000)
+                                            : (useDietStyle
                                                 ? const Color(0xFF800000)
-                                                : primaryColor,
+                                                : primaryColor),
                                       ),
                                     ),
                                   ],
@@ -541,6 +561,15 @@ class _ActivityPageState extends State<ActivityPage> {
     final youtubeUrl = activity['youtubeUrl'] as String?;
     final category = activity['category'] as String?;
     final activityId = activity['id']?.toString() ?? 'mbsr_activity';
+
+    // Check if this is a nature exploration activity - navigate to explorer page
+    if (_isNatureExplorerActivity(activity)) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const HomePage()),
+      );
+      return;
+    }
 
     // Check if this is a meditation activity - navigate to meditation screen
     if (title.toLowerCase().contains('meditation') &&
@@ -582,6 +611,12 @@ class _ActivityPageState extends State<ActivityPage> {
     // If activity relates to light measurement, open the Lux Meter sheet
     if (_isLuxActivity(activity)) {
       _showLuxMeterSheet(context);
+      return;
+    }
+
+    // Check if this is a nutrition/eat food activity - navigate to nutrition screen
+    if (_isNutritionActivity(activity)) {
+      _navigateToNutritionScreen(context);
       return;
     }
 
@@ -1992,14 +2027,14 @@ class _ActivityPageState extends State<ActivityPage> {
   bool _isDeepWorkActivity(Map<String, dynamic> activity) {
     final title = (activity['title'] ?? '').toString().toLowerCase();
     final category = (activity['category'] ?? '').toString().toLowerCase();
-    
+
     // Exclude minor work activities from deep work navigation
-    if (title.contains('minor work') || 
+    if (title.contains('minor work') ||
         title.contains('administrative tasks') ||
         title.contains('sending emails')) {
       return false;
     }
-    
+
     return title.contains('deep work') ||
         title.contains('deep study') ||
         title.contains('focus session') ||
@@ -2019,6 +2054,177 @@ class _ActivityPageState extends State<ActivityPage> {
       'lighting',
     ];
     return keywords.any((k) => title.contains(k) || description.contains(k));
+  }
+
+  /// Detect if the activity is a nutrition/eat food activity
+  bool _isNutritionActivity(Map<String, dynamic> activity) {
+    final title = (activity['title'] ?? '').toString().toLowerCase();
+    final category = (activity['category'] ?? '').toString().toLowerCase();
+    final description =
+        (activity['description'] ?? '').toString().toLowerCase();
+    const keywords = [
+      'eat',
+      'food',
+      'nutrition',
+      'meal',
+      'snack',
+      'diet',
+      'nutrient',
+      'protein',
+      'calorie',
+    ];
+    return keywords.any((k) =>
+            title.contains(k) ||
+            category.contains(k) ||
+            description.contains(k)) ||
+        category == 'nutrition';
+  }
+
+  /// Detect if the activity is a nature exploration activity
+  bool _isNatureExplorerActivity(Map<String, dynamic> activity) {
+    final title = (activity['title'] ?? '').toString().toLowerCase();
+    final category = (activity['category'] ?? '').toString().toLowerCase();
+    final description =
+        (activity['description'] ?? '').toString().toLowerCase();
+    const keywords = [
+      'walk',
+      'nature',
+      'observe',
+      'outdoor',
+      'explore',
+      'bird',
+      'wildlife',
+      'hiking',
+      'trail',
+      'forest',
+      'park',
+      'naturelens',
+    ];
+    return keywords.any((k) =>
+            title.contains(k) ||
+            category.contains(k) ||
+            description.contains(k)) ||
+        category == 'nature' ||
+        category == 'exploration';
+  }
+
+  /// Navigate to the nutrition/eat food tracking screen
+  void _navigateToNutritionScreen(BuildContext context) async {
+    try {
+      // Get available cameras
+      final List<CameraDescription> cameras = await availableCameras();
+
+      // Get the user profile from shared preferences
+      final prefs = await SharedPreferences.getInstance();
+      final profileJson = prefs.getString('user_profile');
+
+      UserProfile? profile;
+      if (profileJson != null) {
+        try {
+          final profileData = jsonDecode(profileJson);
+          profile = UserProfile(
+            weight: (profileData['weight'] as num).toDouble(),
+            height: (profileData['height'] as num).toDouble(),
+            age: profileData['age'] as int,
+            gender: profileData['gender'] as String,
+            activityLevel: profileData['activityLevel'] as String,
+            goal: profileData['goal'] as String,
+            state: profileData['state'] as String? ?? 'Delhi',
+            healthConditions: List<String>.from(
+              (profileData['healthConditions'] as List?) ?? [],
+            ),
+            healthGoals: Map<String, bool>.from(
+              (profileData['healthGoals'] as Map?) ?? {},
+            ),
+          );
+        } catch (e) {
+          print('Error parsing user profile: $e');
+        }
+      }
+
+      if (!mounted) return;
+
+      if (profile != null) {
+        final safeProfile = profile; // Non-null assertion via local variable
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => NutritionNavigatorScreen(
+              cameras: cameras,
+              profile: safeProfile,
+            ),
+          ),
+        );
+      } else {
+        // Show helpful message before redirecting to profile setup
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please setup your profile to track nutrition'),
+            backgroundColor: Colors.blue,
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+        // Wait a moment for user to see the message
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        // Navigate to profile setup page
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProfileSetupPage(
+              cameras: cameras,
+              onProfileSaved: (newProfile) {
+                // Profile will be saved by ProfileSetupPage
+                Navigator.pop(context, newProfile);
+              },
+            ),
+          ),
+        );
+
+        // Check if profile was created and retry nutrition navigation
+        if (result != null && result is UserProfile && mounted) {
+          // Save the profile to SharedPreferences
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            final profileJson = jsonEncode({
+              'weight': result.weight,
+              'height': result.height,
+              'age': result.age,
+              'gender': result.gender,
+              'activityLevel': result.activityLevel,
+              'goal': result.goal,
+              'state': result.state,
+              'healthConditions': result.healthConditions,
+              'healthGoals': result.healthGoals,
+            });
+            await prefs.setString('user_profile', profileJson);
+            print('Profile saved successfully');
+          } catch (e) {
+            print('Error saving profile: $e');
+          }
+
+          // Navigate to nutrition tracker
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => NutritionNavigatorScreen(
+                cameras: cameras,
+                profile: result,
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error navigating to nutrition screen: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error opening nutrition tracker: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   /// Show Lux Meter in a modal bottom sheet and dismiss when measurement stops

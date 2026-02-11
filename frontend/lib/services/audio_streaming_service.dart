@@ -6,7 +6,8 @@ import 'package:http/http.dart' as http;
 
 /// Audio Streaming Service - Downloads and caches audio files from Firebase Storage
 class AudioStreamingService {
-  static final AudioStreamingService _instance = AudioStreamingService._internal();
+  static final AudioStreamingService _instance =
+      AudioStreamingService._internal();
   factory AudioStreamingService() => _instance;
   AudioStreamingService._internal();
 
@@ -17,8 +18,9 @@ class AudioStreamingService {
   static const Map<String, String> audioFiles = {
     'sounds/Breeze.mp3': 'assets/sounds/Breeze.mp3',
     'sounds/Forest_sound.mp3': 'assets/sounds/Forest_sound.mp3',
-    'sounds/Rain sound.mp3': 'assets/sounds/Rain sound.mp3',
-    'sounds/Guided Body Scan Meditation.mp3': 'assets/sounds/Guided Body Scan Meditation.mp3',
+    'sounds/Rain_sound.mp3': 'assets/sounds/Rain_sound.mp3',
+    'sounds/Guided_Body_Scan_Meditation.mp3':
+        'assets/sounds/Guided_Body_Scan_Meditation.mp3',
   };
 
   /// Get local file path for an audio asset
@@ -55,13 +57,13 @@ class AudioStreamingService {
       // Download from Firebase Storage
       debugPrint('Downloading audio from Firebase: $storagePath');
       final ref = _storage.ref(storagePath);
-      
+
       // Get download URL
       final downloadUrl = await ref.getDownloadURL();
-      
+
       // Create directory if needed
       await localFile.parent.create(recursive: true);
-      
+
       // Download file
       final response = await http.get(Uri.parse(downloadUrl));
       if (response.statusCode == 200) {
@@ -80,7 +82,8 @@ class AudioStreamingService {
   }
 
   /// Pre-download audio files in the background
-  Future<void> preloadAudio(List<String> assetPaths, {
+  Future<void> preloadAudio(
+    List<String> assetPaths, {
     void Function(String fileName, double progress)? onProgress,
   }) async {
     for (final assetPath in assetPaths) {
@@ -91,7 +94,7 @@ class AudioStreamingService {
       onProgress?.call(fileName, 0.0);
 
       await getAudioPath(assetPath);
-      
+
       onProgress?.call(fileName, 1.0);
     }
   }
