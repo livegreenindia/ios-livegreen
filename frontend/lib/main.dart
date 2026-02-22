@@ -13,6 +13,7 @@ import 'services/session_manager.dart';
 import 'services/notification_service.dart';
 import 'services/deep_link_service.dart';
 import 'services/location_tracking_service.dart';
+import 'services/mindfulness_bell_scheduler.dart';
 import 'screens/splash_wrapper.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
@@ -21,7 +22,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   if (kDebugMode) {
-    debugPrint('[Notifications] Background message: ${message.notification?.title}');
+    debugPrint(
+        '[Notifications] Background message: ${message.notification?.title}');
   }
 }
 
@@ -30,30 +32,34 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  
+
   // Enable Firestore offline persistence for better UX
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
   );
-  
+
   // Initialize Firebase Cloud Messaging background handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  
+
   // Initialize notification service
   await NotificationService.initialize();
-  
+
+  // Initialize mindfulness bell local reminder scheduler
+  await MindfulnessBellScheduler.initialize();
+
   // Location permission is now requested when needed (not at startup)
-  
+
   // Enable persistent auth - keeps user signed in (web only)
   // `setPersistence` is a web-only API; guard it to avoid runtime errors on mobile.
   if (kIsWeb) {
     await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
   }
-  
+
   // If API_BASE_URL or running locally, connect to emulators for faster dev
   const localHosts = ['127.0.0.1', 'localhost'];
-  final apiBase = const String.fromEnvironment('API_BASE_URL', defaultValue: '');
+  final apiBase =
+      const String.fromEnvironment('API_BASE_URL', defaultValue: '');
   final isLocal = localHosts.any((h) => apiBase.contains(h));
   if (isLocal) {
     // Connect Auth to emulator

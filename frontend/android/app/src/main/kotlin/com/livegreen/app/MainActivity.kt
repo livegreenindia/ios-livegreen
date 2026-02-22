@@ -4,6 +4,7 @@ import android.app.AppOpsManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.usage.UsageStatsManager
+import android.media.AudioManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -17,6 +18,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
 	private val CHANNEL = "livegreen/digital_wellbeing"
 	private val BLOCKER_CHANNEL = "livegreen/app_blocker"
+	private val DEVICE_STATE_CHANNEL = "com.livegreen.app/device_state"
 	private val BLOCKER_PREFS = "app_blocker"
 
 	override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -341,6 +343,48 @@ class MainActivity : FlutterActivity() {
 			}
 		}
 
+		// Device state channel for mindfulness reminder mute checks
+		MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_STATE_CHANNEL).setMethodCallHandler { call, result ->
+			when (call.method) {
+				"isSilentModeEnabled" -> {
+					try {
+						val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+						result.success(audioManager.ringerMode != AudioManager.RINGER_MODE_NORMAL)
+					} catch (ex: Exception) {
+						result.success(false)
+					}
+				}
+				"isDoNotDisturbEnabled" -> {
+					try {
+						if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+							val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+							result.success(
+								notificationManager.currentInterruptionFilter !=
+									NotificationManager.INTERRUPTION_FILTER_ALL
+							)
+						} else {
+							result.success(false)
+						}
+					} catch (ex: Exception) {
+						result.success(false)
+					}
+				}
+				"isAirplaneModeEnabled" -> {
+					try {
+						val enabled = Settings.Global.getInt(
+							contentResolver,
+							Settings.Global.AIRPLANE_MODE_ON,
+							0
+						) == 1
+						result.success(enabled)
+					} catch (ex: Exception) {
+						result.success(false)
+					}
+				}
+				else -> result.notImplemented()
+			}
+		}
+
 		// Samsung Health channel - minimal stubs. Replace TODOs with real Samsung Health SDK integration.
 		MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "livegreen/samsung_health").setMethodCallHandler { call, result ->
 			when (call.method) {
@@ -419,6 +463,29 @@ class MainActivity : FlutterActivity() {
 				enableVibration(false)
 			}
 			notificationManager.createNotificationChannel(wellbeingChannel)
+
+			val mindfulnessAudioChannel = NotificationChannel(
+				"mindfulness_bell_audio",
+				"Mindfulness Bell Audio",
+				NotificationManager.IMPORTANCE_HIGH
+			).apply {
+				description = "Mindfulness bell reminders with sound"
+				enableVibration(true)
+				enableLights(true)
+				lightColor = 0xFF00A859.toInt()
+			}
+			notificationManager.createNotificationChannel(mindfulnessAudioChannel)
+
+			val mindfulnessVibrateChannel = NotificationChannel(
+				"mindfulness_bell_vibrate",
+				"Mindfulness Bell Vibrate Only",
+				NotificationManager.IMPORTANCE_HIGH
+			).apply {
+				description = "Mindfulness bell reminders with vibration only"
+				enableVibration(true)
+				setSound(null, null)
+			}
+			notificationManager.createNotificationChannel(mindfulnessVibrateChannel)
 		}
 	}
 }

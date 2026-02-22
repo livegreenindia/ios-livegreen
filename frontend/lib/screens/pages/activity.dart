@@ -20,6 +20,7 @@ import 'progress_refresh_notifier.dart';
 import 'package:provider/provider.dart';
 import '../../models/lux.dart';
 import 'meditation.dart';
+import 'mindfulness_bell_reminder_screen.dart';
 import '../../models/deepWork.dart';
 import '../../models/screen_control.dart';
 import '../nutrition/nutrition_navigator_screen.dart';
@@ -148,13 +149,18 @@ class _ActivityPageState extends State<ActivityPage> {
     final activityId =
         activity['id'] ?? title.toLowerCase().replaceAll(' ', '_');
     final completed = _completedCache[activityId] ?? false;
+    final isMindfulnessBellReminder =
+        _isMindfulnessBellReminderActivity(activity);
     final isMindfulness = _isMindfulnessActivity(activity);
     final isScreenControl = _isScreenControlActivity(activity);
     final isExplorer = _isNatureExplorerActivity(activity);
     final isNutrition = _isNutritionActivity(activity);
     final isLux = _isLuxActivity(activity);
-    final usePracticeStyle =
-        isMindfulness || isScreenControl || isExplorer || isLux;
+    final usePracticeStyle = isMindfulnessBellReminder ||
+        isMindfulness ||
+        isScreenControl ||
+        isExplorer ||
+        isLux;
     final useDietStyle = isNutrition && !usePracticeStyle;
 
     Widget actionButton;
@@ -562,6 +568,20 @@ class _ActivityPageState extends State<ActivityPage> {
     final category = activity['category'] as String?;
     final activityId = activity['id']?.toString() ?? 'mbsr_activity';
 
+    // Dedicated Mindfulness Bell Reminder activity opens reminder settings screen
+    if (_isMindfulnessBellReminderActivity(activity)) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => MindfulnessBellReminderScreen(
+            activityId: activityId,
+            activityTitle: title,
+          ),
+        ),
+      );
+      return;
+    }
+
     // Check if this is a nature exploration activity - navigate to explorer page
     if (_isNatureExplorerActivity(activity)) {
       Navigator.push(
@@ -599,7 +619,7 @@ class _ActivityPageState extends State<ActivityPage> {
       return;
     }
 
-    // Check if this is a mindfulness/MBSR activity - show breathing dialog instead
+    // Check if this is a mindfulness/MBSR activity - show breathing dialog
     if (category?.toLowerCase() == 'mindfulness' ||
         title.toLowerCase().contains('mbsr') ||
         title.toLowerCase().contains('mindfulness') ||
@@ -1991,8 +2011,20 @@ class _ActivityPageState extends State<ActivityPage> {
     );
   }
 
+  bool _isMindfulnessBellReminderActivity(Map<String, dynamic> activity) {
+    final id = (activity['id'] ?? '').toString().toLowerCase();
+    final title = (activity['title'] ?? '').toString().toLowerCase();
+    return id == 'mindfulness_bell_reminder' ||
+        title == 'mindfulness bell reminder' ||
+        title == 'mindfulness bell';
+  }
+
   /// Check if activity is a mindfulness/MBSR activity (shows clock instead of details)
   bool _isMindfulnessActivity(Map<String, dynamic> activity) {
+    if (_isMindfulnessBellReminderActivity(activity)) {
+      return false;
+    }
+
     final title = (activity['title'] ?? '').toString().toLowerCase();
     final category = (activity['category'] ?? '').toString().toLowerCase();
     return category == 'mindfulness' ||
@@ -2082,6 +2114,10 @@ class _ActivityPageState extends State<ActivityPage> {
 
   /// Detect if the activity is a nature exploration activity
   bool _isNatureExplorerActivity(Map<String, dynamic> activity) {
+    if (_isMindfulnessBellReminderActivity(activity)) {
+      return false;
+    }
+
     final title = (activity['title'] ?? '').toString().toLowerCase();
     final category = (activity['category'] ?? '').toString().toLowerCase();
     final description =
@@ -3332,6 +3368,8 @@ Join me on LiveGreen and start your wellness journey today!
         );
       }
 
+      activities = _withMindfulnessBellReminderActivity(activities);
+
       _activities = activities;
 
       // Set initial selected time slot to current time slot if not already set
@@ -3410,5 +3448,55 @@ Join me on LiveGreen and start your wellness journey today!
         _activitiesError = 'Something went wrong. Please try again.';
       });
     }
+  }
+
+  List<Map<String, dynamic>> _withMindfulnessBellReminderActivity(
+    List<Map<String, dynamic>> activities,
+  ) {
+    final hasReminder = activities.any(
+      (activity) => _isMindfulnessBellReminderActivity(activity),
+    );
+    if (hasReminder) {
+      return activities;
+    }
+
+    final reminderActivity = <String, dynamic>{
+      'id': 'mindfulness_bell_reminder',
+      'title': 'Mindfulness Bell Reminder',
+      'subtitle': 'Set recurring mindful reminder alarms',
+      'description':
+          'Configure recurring reminders with Bell, Bird Song, or Vibrate Only and choose your interval.',
+      'icon': 'self_improvement',
+      'weight': 10,
+      'category': 'mindfulness',
+      'isWellnessActivity': true,
+      'timeSlot': activities.isNotEmpty
+          ? (activities.first['timeSlot'] ?? 'Today')
+          : 'Today',
+      'timeSlotOrder':
+          activities.isNotEmpty ? (activities.first['timeSlotOrder'] ?? 0) : 0,
+      'tips': [
+        'Choose an interval that fits your day.',
+        'Use Vibrate Only for quiet environments.',
+      ],
+    };
+
+    final insertionIndex = activities.indexWhere((activity) {
+      final category = (activity['category'] ?? '').toString().toLowerCase();
+      final title = (activity['title'] ?? '').toString().toLowerCase();
+      return category == 'mindfulness' ||
+          title.contains('mindfulness') ||
+          title.contains('mbsr') ||
+          title.contains('breathing') ||
+          title.contains('meditation');
+    });
+
+    if (insertionIndex == -1) {
+      return [...activities, reminderActivity];
+    }
+
+    final updated = [...activities];
+    updated.insert(insertionIndex + 1, reminderActivity);
+    return updated;
   }
 }
