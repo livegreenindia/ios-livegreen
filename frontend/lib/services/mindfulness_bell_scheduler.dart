@@ -196,7 +196,7 @@ class MindfulnessBellScheduler {
       await _audioPlayer.setVolume(0.9);
       await _audioPlayer.play(source);
       if (sound == AlarmSound.birdSong) {
-        await Future.delayed(const Duration(seconds: 4));
+        await Future.delayed(const Duration(seconds: 10));
         await _audioPlayer.stop();
       }
     } catch (_) {
