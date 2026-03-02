@@ -4,11 +4,18 @@ import '../models/wellness_schedule.dart';
 /// Source: Wellness schedule matrix for different lifestyle profiles
 class WellnessScheduleData {
   static Map<String, WellnessSchedule> getAllSchedules() {
+    // we still keep the individual methods but the app will always use work
+    // schedule irrespective of what the user selects. this keeps the default
+    // behaviour predictable and makes it easy to seed the work activities to
+    // firestore later on.
+    final work = _getWorkingSchedule();
     return {
-      'Working': _getWorkingSchedule(),
-      'Student': _getStudentSchedule(),
-      'Housewife': _getHousewifeSchedule(),
-      'Retired': _getRetiredSchedule(),
+      'Work': work,
+      'Academic': work,
+      'Housewife': work,
+      // legacy key for backwards compatibility; if somebody signed up before
+      // the change we still fall back to work schedule
+      'Working': work,
     };
   }
 

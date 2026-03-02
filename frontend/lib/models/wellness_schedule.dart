@@ -85,10 +85,9 @@ class WellnessActivity {
 
 /// User profile types
 enum UserProfile {
-  working('Working', 'Office workers, professionals'),
-  student('Student', 'School and college students'),
-  housewife('Housewife', 'Homemakers'),
-  retired('Retired', 'Retired individuals');
+  work('Work', 'Professionals looking for work‑centric wellness'),
+  academic('Academic', 'Students / academics balancing studies'),
+  housewife('Housewife', 'Homemakers prioritizing family wellness');
 
   final String displayName;
   final String description;

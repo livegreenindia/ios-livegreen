@@ -19,30 +19,26 @@ class _ProfileSelectionOnboardingState extends State<ProfileSelectionOnboarding>
   String? _selectedProfile;
   bool _loading = false;
 
+  // only three categories are shown during signup; work activities are the
+  // default for everyone so the rest of the app ignores the selection.
   final Map<String, ProfileData> _profiles = {
-    'Working': ProfileData(
+    'Work': ProfileData(
       icon: Icons.business_center,
       color: AppColors.primary,
-      description: 'For professionals balancing work and wellness',
+      description: 'Professionals looking for work‑centric wellness tips',
       gradient: [AppColors.primary, const Color(0xFF02C077)],
     ),
-    'Student': ProfileData(
+    'Academic': ProfileData(
       icon: Icons.school,
       color: const Color(0xFF2196F3),
-      description: 'For students managing studies and health',
+      description: 'Students / academics balancing studies and health',
       gradient: [const Color(0xFF2196F3), const Color(0xFF64B5F6)],
     ),
     'Housewife': ProfileData(
       icon: Icons.home,
       color: const Color(0xFFE91E63),
-      description: 'For homemakers prioritizing family wellness',
+      description: 'Homemakers prioritizing family wellness',
       gradient: [const Color(0xFFE91E63), const Color(0xFFF06292)],
-    ),
-    'Retired': ProfileData(
-      icon: Icons.deck,
-      color: const Color(0xFFFF9800),
-      description: 'For retirees enjoying active lifestyle',
-      gradient: [const Color(0xFFFF9800), const Color(0xFFFFB74D)],
     ),
   };
 

@@ -7,6 +7,7 @@ import UsersPage from './pages/UsersPage';
 import ClubsPage from './pages/ClubsPage';
 import PlacesPage from './pages/PlacesPage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import ActivitiesPage from './pages/ActivitiesPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isAdmin, loading } = useAuth();
@@ -59,6 +60,7 @@ function AppRoutes() {
         <Route path="clubs" element={<ClubsPage />} />
         <Route path="places" element={<PlacesPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="activities" element={<ActivitiesPage />} />
       </Route>
     </Routes>
   );
@@ -67,7 +69,7 @@ function AppRoutes() {
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AppRoutes />
       </BrowserRouter>
     </AuthProvider>

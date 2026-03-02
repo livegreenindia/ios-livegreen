@@ -221,6 +221,12 @@ service cloud.firestore {
       }
     }
 
+    // Completions subcollection – allow admins to query via collectionGroup
+    // (required for collectionGroup('completions') queries from the admin dashboard)
+    match /{path=**}/completions/{docId} {
+      allow read: if isAdmin() || isAdminByRole();
+    }
+
     // Default: deny all unmatched paths
     match /{document=**} { 
       allow read, write: if false; 

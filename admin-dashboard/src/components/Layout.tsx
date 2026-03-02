@@ -10,14 +10,16 @@ import {
   LogOut,
   Menu,
   Leaf,
+  Activity,
 } from 'lucide-react';
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Users', href: '/users', icon: Users },
-  { name: 'Clubs', href: '/clubs', icon: Building2 },
-  { name: 'Places', href: '/places', icon: MapPin },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+  { name: 'Dashboard',   href: '/',           icon: LayoutDashboard },
+  { name: 'Users',       href: '/users',       icon: Users },
+  { name: 'Activities',  href: '/activities',  icon: Activity },
+  { name: 'Clubs',       href: '/clubs',       icon: Building2 },
+  { name: 'Places',      href: '/places',      icon: MapPin },
+  { name: 'Analytics',   href: '/analytics',   icon: BarChart3 },
 ];
 
 export default function Layout() {

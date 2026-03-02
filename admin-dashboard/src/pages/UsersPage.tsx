@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { collection, query, getDocs, doc, updateDoc, orderBy, limit, startAfter, DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Search, Shield, ShieldOff, Loader2 } from 'lucide-react';
 
@@ -19,47 +19,29 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [updating, setUpdating] = useState<string | null>(null);
-  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [hasMore, setHasMore] = useState(true);
-  const pageSize = 20;
 
   useEffect(() => {
     loadUsers();
   }, []);
 
-  const loadUsers = async (loadMore = false) => {
+  const loadUsers = async () => {
     try {
       setLoading(true);
-      let q = query(
-        collection(db, 'users'),
-        orderBy('email'),
-        limit(pageSize)
-      );
-
-      if (loadMore && lastDoc) {
-        q = query(
-          collection(db, 'users'),
-          orderBy('email'),
-          startAfter(lastDoc),
-          limit(pageSize)
-        );
-      }
-
-      const snapshot = await getDocs(q);
-      const usersData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
+      // No orderBy — Firestore silently drops docs missing the sorted field.
+      // Fetch all users and sort client-side so every user appears.
+      const snapshot = await getDocs(collection(db, 'users'));
+      const usersData = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+        createdAt: d.data().createdAt?.toDate(),
       })) as User[];
 
-      if (loadMore) {
-        setUsers(prev => [...prev, ...usersData]);
-      } else {
-        setUsers(usersData);
-      }
+      // Sort: newest first (nulls last)
+      usersData.sort((a, b) =>
+        (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0)
+      );
 
-      setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
-      setHasMore(snapshot.docs.length === pageSize);
+      setUsers(usersData);
     } catch (error) {
       console.error('Error loading users:', error);
     } finally {
@@ -242,17 +224,7 @@ export default function UsersPage() {
           </table>
         </div>
 
-        {/* Load More */}
-        {hasMore && !loading && (
-          <div className="p-4 border-t border-gray-100">
-            <button
-              onClick={() => loadUsers(true)}
-              className="w-full py-2 text-sm text-primary-600 hover:text-primary-700 font-medium"
-            >
-              Load more users
-            </button>
-          </div>
-        )}
+
       </div>
     </div>
   );

@@ -57,21 +57,11 @@ module.exports = (db, authMiddleware) => {
         compCountByDate[dt] = (compCountByDate[dt] || 0) + 1;
       });
 
-      // Expected activity counts by profile (weekday/weekend)
-      const activityCounts = {
-        'Working': { weekday: 20, weekend: 6 },
-        'Student': { weekday: 20, weekend: 6 },
-        'Housewife': { weekday: 20, weekend: 6 },
-        'Retired': { weekday: 20, weekend: 6 },
-        'default': { weekday: 10, weekend: 5 },
-      };
-
-      const getExpectedCount = (profile, date) => {
-        const counts = activityCounts[profile] || activityCounts['default'];
-        const dayOfWeek = date.getDay();
-        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-        return isWeekend ? counts.weekend : counts.weekday;
-      };
+      // count activities directly from Firestore; this list contains only
+      // work‑related items and is shared by every user.  we compute it once
+      // and reuse when building the series.
+      const activitySnap = await db.collection('activities').get();
+      const globalExpectedCount = activitySnap.size;
 
       // build date list from start to now (inclusive), in ascending order
       const series = [];
@@ -89,18 +79,17 @@ module.exports = (db, authMiddleware) => {
             completionPercent: s.completionPercent || 0, 
             happiness: hapMap[iso] || null, 
             count,
-            expectedCount: s.expectedCount || getExpectedCount(wellnessProfile, cur),
+            expectedCount: s.expectedCount || globalExpectedCount,
           });
         } else {
-          // Calculate completion percent based on user's profile and day type
-          const expectedCount = getExpectedCount(wellnessProfile, cur);
-          const percent = expectedCount === 0 ? 0 : Math.min(100, Math.round((count / expectedCount) * 100));
+          // Calculate completion percent using global expected count
+          const percent = globalExpectedCount === 0 ? 0 : Math.min(100, Math.round((count / globalExpectedCount) * 100));
           series.push({ 
             date: iso, 
             completionPercent: percent, 
             happiness: hapMap[iso] || null, 
             count,
-            expectedCount,
+            expectedCount: globalExpectedCount,
           });
         }
         cur.setDate(cur.getDate() + 1);
