@@ -91,12 +91,29 @@ class GooglePlacesService {
     final base = '$_baseUrl?location=$latitude,$longitude&radius=$r';
 
     final results = await Future.wait([
-      _fetch('$base&type=park&key=$_apiKey', TrekCategory.natureWalk, 'park'),
-      _fetch('$base&type=campground&key=$_apiKey', TrekCategory.trekkingPoint, 'campground'),
+      // Hills, peaks, mountains, betta — natural climbing destinations
       _fetch(
-        '$base&type=point_of_interest&keyword=trekking+trail+nature+viewpoint&key=$_apiKey',
+        '$base&type=natural_feature&keyword=hill+peak+mountain+betta+giri&key=$_apiKey',
         TrekCategory.trekkingPoint,
-        'trekking',
+        'hills',
+      ),
+      // Forts and hilltop heritage — most Indian trekking spots are forts
+      _fetch(
+        '$base&type=point_of_interest&keyword=fort+durga+kota+hilltop+trek&key=$_apiKey',
+        TrekCategory.trekkingPoint,
+        'forts',
+      ),
+      // Viewpoints and summits
+      _fetch(
+        '$base&type=point_of_interest&keyword=viewpoint+summit+trekking+hiking+trail&key=$_apiKey',
+        TrekCategory.trekkingPoint,
+        'viewpoints',
+      ),
+      // Nature walks — forests, wildlife, valley routes
+      _fetch(
+        '$base&type=natural_feature&keyword=forest+valley+nature+walk+falls&key=$_apiKey',
+        TrekCategory.natureWalk,
+        'nature',
       ),
     ]);
 
