@@ -9,8 +9,11 @@ import {
   orderBy,
   limit,
 } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { db } from '../lib/firebase';
-import { Users, Building2, MapPin, TrendingUp, Clock, CheckCircle, Activity } from 'lucide-react';
+import { Users, Building2, MapPin, TrendingUp, Clock, CheckCircle, Activity, Bell } from 'lucide-react';
+
+const API_BASE = 'https://us-central1-livegreen-bf838.cloudfunctions.net/api';
 
 interface Stats {
   totalUsers: number;
@@ -27,6 +30,12 @@ interface RecentActivity {
   timestamp: Date | null;
 }
 
+interface NotifResult {
+  sent: number;
+  failed: number;
+  total: number;
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>({
     totalUsers: 0,
@@ -36,6 +45,38 @@ export default function DashboardPage() {
   });
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Broadcast notification state
+  const [notifTitle, setNotifTitle] = useState('New Update Available! 🎉');
+  const [notifBody, setNotifBody] = useState('LiveGreen has new features. Open the app to explore!');
+  const [notifSending, setNotifSending] = useState(false);
+  const [notifResult, setNotifResult] = useState<NotifResult | null>(null);
+  const [notifError, setNotifError] = useState<string | null>(null);
+
+  const sendBroadcast = async () => {
+    if (!notifTitle.trim() || !notifBody.trim()) return;
+    setNotifSending(true);
+    setNotifResult(null);
+    setNotifError(null);
+    try {
+      const token = await getAuth().currentUser?.getIdToken();
+      const resp = await fetch(`${API_BASE}/admin/broadcast-notification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ title: notifTitle.trim(), body: notifBody.trim() }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Failed');
+      setNotifResult(data);
+    } catch (e: unknown) {
+      setNotifError(e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setNotifSending(false);
+    }
+  };
 
   useEffect(() => {
     loadDashboardData();
@@ -269,6 +310,59 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Broadcast Notification */}
+      <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
+            <Bell className="w-5 h-5 text-indigo-600" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Send Notification to All Users</h2>
+            <p className="text-sm text-gray-500">Push a message to every user who has the app installed</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+            <input
+              type="text"
+              value={notifTitle}
+              onChange={e => setNotifTitle(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              placeholder="Notification title"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
+            <input
+              type="text"
+              value={notifBody}
+              onChange={e => setNotifBody(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              placeholder="Notification body"
+            />
+          </div>
+        </div>
+        <div className="flex items-center gap-4 mt-4">
+          <button
+            onClick={sendBroadcast}
+            disabled={notifSending || !notifTitle.trim() || !notifBody.trim()}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors"
+          >
+            <Bell className="w-4 h-4" />
+            {notifSending ? 'Sending...' : `Send to ${stats.totalUsers} users`}
+          </button>
+          {notifResult && (
+            <span className="text-sm text-green-600 font-medium">
+              ✓ Sent: {notifResult.sent} / {notifResult.total} (failed: {notifResult.failed})
+            </span>
+          )}
+          {notifError && (
+            <span className="text-sm text-red-600 font-medium">✗ {notifError}</span>
           )}
         </div>
       </div>
