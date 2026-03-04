@@ -1,9 +1,11 @@
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../models/mindfulness_bell_settings.dart';
+import 'audio_streaming_service.dart';
 import 'device_audio_mode_service.dart';
 
 class MindfulnessBellScheduler {
@@ -182,15 +184,31 @@ class MindfulnessBellScheduler {
   }
 
   static Future<void> _playForegroundAudio(AlarmSound sound) async {
-    final source = switch (sound) {
-      AlarmSound.bell => AssetSource('sounds/bell-ringing-05.mp3'),
-      AlarmSound.birdSong => AssetSource('sounds/Forest_sound.mp3'),
-      AlarmSound.vibrateOnly => null,
-    };
+    if (sound == AlarmSound.vibrateOnly) return;
 
-    if (source == null) {
-      return;
+    Source? source;
+
+    if (sound == AlarmSound.bell) {
+      // Small file — still bundled as asset
+      source = AssetSource('sounds/bell-ringing-05.mp3');
+    } else if (sound == AlarmSound.birdSong) {
+      // Large file — stream from Firebase Storage / local cache
+      try {
+        final path =
+            await AudioStreamingService().getAudioPath('sounds/Forest_sound.mp3');
+        if (path != null) {
+          source = DeviceFileSource(path);
+        } else {
+          debugPrint('Forest sound not cached and download failed');
+          return; // Notification itself is the fallback
+        }
+      } catch (e) {
+        debugPrint('Error loading bird sound: $e');
+        return;
+      }
     }
+
+    if (source == null) return;
 
     try {
       await _audioPlayer.setVolume(0.9);
