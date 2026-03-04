@@ -17,6 +17,12 @@ service firebase.storage {
       allow write: if isAdmin();
     }
     
+    // Audio files uploaded via upload script (audio/ path)
+    match /audio/{audioFile} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
     // Club images: only authenticated users can upload, read is public for approved clubs
     match /clubs/{clubId}/{allPaths=**} {
       // Anyone can read (for displaying approved club images)
