@@ -22,7 +22,7 @@ service cloud.firestore {
     // Activities: read public, write only admin
     match /activities/{docId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isAdminByRole();
     }
 
     // Users top-level document - user can read/write their own data
@@ -122,7 +122,7 @@ service cloud.firestore {
                       request.resource.data.createdBy == request.auth.uid;
       // Only creator or admin can update/delete
       allow update, delete: if isAuthenticated() && 
-                              (resource.data.createdBy == request.auth.uid || isAdmin());
+                              (resource.data.createdBy == request.auth.uid || isAdmin() || isAdminByRole());
       
       // Trek reviews subcollection (nested under trek)
       match /reviews/{reviewId} {
