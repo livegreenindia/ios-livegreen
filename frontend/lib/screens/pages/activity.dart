@@ -156,12 +156,47 @@ class _ActivityPageState extends State<ActivityPage> {
     final isExplorer = _isNatureExplorerActivity(activity);
     final isNutrition = _isNutritionActivity(activity);
     final isLux = _isLuxActivity(activity);
-    final usePracticeStyle = isMindfulnessBellReminder ||
-        isMindfulness ||
-        isScreenControl ||
-        isExplorer ||
-        isLux;
-    final useDietStyle = isNutrition && !usePracticeStyle;
+    // Override button type from Firestore field (set in admin panel)
+    final actionButtonType =
+        (activity['actionButtonType'] ?? 'auto').toString().toLowerCase();
+    final bool usePracticeStyle;
+    final bool useDietStyle;
+    final bool hideActionButton = actionButtonType == 'none';
+    if (actionButtonType == 'auto' || actionButtonType.isEmpty) {
+      usePracticeStyle = isMindfulnessBellReminder ||
+          isMindfulness ||
+          isScreenControl ||
+          isExplorer ||
+          isLux;
+      useDietStyle = isNutrition && !usePracticeStyle;
+    } else {
+      usePracticeStyle = actionButtonType == 'practice' ||
+          actionButtonType == 'explore' ||
+          actionButtonType == 'measure';
+      useDietStyle = actionButtonType == 'diet';
+    }
+
+    // Determine button label from explicit type or fall back to auto-detect
+    final String actionButtonLabel;
+    if (actionButtonType != 'auto' &&
+        actionButtonType != 'none' &&
+        actionButtonType.isNotEmpty) {
+      const labelMap = {
+        'practice': 'Practice',
+        'explore': 'Explore',
+        'diet': 'Diet',
+        'measure': 'Measure',
+        'focus': 'Focus',
+        'details': 'Details',
+      };
+      actionButtonLabel = labelMap[actionButtonType] ?? 'Details';
+    } else {
+      actionButtonLabel = usePracticeStyle
+          ? (isExplorer ? 'Explore' : (isLux ? 'Measure' : 'Practice'))
+          : (useDietStyle
+              ? 'Diet'
+              : (activity['title'] == 'Deep work' ? 'Focus' : 'Details'));
+    }
 
     Widget actionButton;
     if (completed) {
@@ -188,6 +223,8 @@ class _ActivityPageState extends State<ActivityPage> {
           ],
         ),
       );
+    } else if (hideActionButton) {
+      actionButton = const SizedBox.shrink();
     } else {
       actionButton = ElevatedButton(
         onPressed: () async {
@@ -474,6 +511,7 @@ class _ActivityPageState extends State<ActivityPage> {
                           // for generic activities show Details only when content exists.
                           if (usePracticeStyle ||
                               useDietStyle ||
+                              actionButtonLabel != 'Details' ||
                               activity['description'] != null ||
                               activity['tips'] != null ||
                               activity['youtubeUrl'] != null)
@@ -487,18 +525,14 @@ class _ActivityPageState extends State<ActivityPage> {
                                   vertical: 8,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: (usePracticeStyle || useDietStyle)
+                                  color: (usePracticeStyle || useDietStyle || actionButtonLabel != 'Details')
                                       ? const Color(0xFFFFF3E0)
-                                      : (useDietStyle
-                                          ? Colors.green.shade50
-                                          : const Color(0xFFF5F5F5)),
+                                      : const Color(0xFFF5F5F5),
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
-                                    color: (usePracticeStyle || useDietStyle)
+                                    color: (usePracticeStyle || useDietStyle || actionButtonLabel != 'Details')
                                         ? const Color(0xFFD7CCC8)
-                                        : (useDietStyle
-                                            ? Colors.green.shade200
-                                            : Colors.grey.shade300),
+                                        : Colors.grey.shade300,
                                     width: 1,
                                   ),
                                 ),
@@ -506,38 +540,23 @@ class _ActivityPageState extends State<ActivityPage> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
-                                      usePracticeStyle
+                                      (usePracticeStyle || actionButtonLabel != 'Details')
                                           ? Icons.play_arrow_rounded
                                           : Icons.info_outline,
-                                      color: usePracticeStyle
+                                      color: (usePracticeStyle || useDietStyle || actionButtonLabel != 'Details')
                                           ? const Color(0xFF800000)
-                                          : (useDietStyle
-                                              ? const Color(0xFF800000)
-                                              : primaryColor),
+                                          : primaryColor,
                                       size: 16,
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
-                                      usePracticeStyle
-                                          ? (isExplorer
-                                              ? 'Explore'
-                                              : (isLux
-                                                  ? 'Measure'
-                                                  : 'Practice'))
-                                          : (useDietStyle
-                                              ? 'Diet'
-                                              : (activity['title'] ==
-                                                      'Deep work'
-                                                  ? 'Focus'
-                                                  : 'Details')),
+                                      actionButtonLabel,
                                       style: GoogleFonts.manrope(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w700,
-                                        color: usePracticeStyle
+                                        color: (usePracticeStyle || useDietStyle || actionButtonLabel != 'Details')
                                             ? const Color(0xFF800000)
-                                            : (useDietStyle
-                                                ? const Color(0xFF800000)
-                                                : primaryColor),
+                                            : primaryColor,
                                       ),
                                     ),
                                   ],

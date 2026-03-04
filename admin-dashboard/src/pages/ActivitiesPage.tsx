@@ -30,7 +30,7 @@ interface ActivityDoc {
   subtitle: string;
   timeSlot: string;
   timeSlotOrder: number;
-  isWellnessActivity: boolean;
+  actionButtonType: string; // 'auto' | 'practice' | 'explore' | 'diet' | 'measure' | 'focus' | 'details' | 'none'
 }
 
 const TIME_SLOTS = [
@@ -89,7 +89,7 @@ const blankForm = (): Omit<ActivityDoc, 'id'> => ({
   subtitle: '',
   timeSlot: 'Morning (6am-9am)',
   timeSlotOrder: 0,
-  isWellnessActivity: true,
+  actionButtonType: 'auto',
 });
 
 // ── component ─────────────────────────────────────────────────────────────────
@@ -160,7 +160,7 @@ export default function ActivitiesPage() {
       subtitle: a.subtitle ?? '',
       timeSlot: a.timeSlot,
       timeSlotOrder: a.timeSlotOrder,
-      isWellnessActivity: a.isWellnessActivity ?? true,
+      actionButtonType: a.actionButtonType ?? 'auto',
     });
     setError('');
     setModalOpen(true);
@@ -190,7 +190,7 @@ export default function ActivitiesPage() {
         subtitle: form.subtitle.trim(),
         timeSlot: form.timeSlot,
         timeSlotOrder: form.timeSlotOrder,
-        isWellnessActivity: form.isWellnessActivity,
+        actionButtonType: form.actionButtonType,
       };
       if (editTarget) {
         await updateDoc(doc(db, 'activities', editTarget.id), payload);
@@ -451,29 +451,30 @@ export default function ActivitiesPage() {
                 </div>
               </div>
 
-              {/* isWellnessActivity toggle */}
-              <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-xl">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">Wellness Activity</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Shows action button (Practice / Explore / Diet / Measure) on the card</p>
-                </div>
-                <button
-                  onClick={() => setField('isWellnessActivity', !form.isWellnessActivity)}
-                  className={`relative w-11 h-6 rounded-full transition-colors ${form.isWellnessActivity ? 'bg-primary-500' : 'bg-gray-300'}`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${form.isWellnessActivity ? 'translate-x-5' : 'translate-x-0'}`}
-                  />
-                </button>
-              </div>
+              {/* isWellnessActivity toggle removed — field was unused */}
 
-              {/* category → special button hint */}
-              <div className="text-xs text-gray-500 -mt-2 pl-1">
-                {form.category === 'nutrition' && '→ Will show "Diet" button'}
-                {['mindfulness'].includes(form.category) && '→ Will show "Practice" button'}
-                {['nature'].includes(form.category) && '→ Will show "Explore" button'}
-                {(form.name.toLowerCase().includes('lux') || form.name.toLowerCase().includes('light intensity')) && '→ Will show "Measure" button'}
-                {form.name.toLowerCase() === 'mindfulness bell reminder' && '→ Will open Bell Reminder screen'}
+              {/* actionButtonType dropdown */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Action Button Type
+                </label>
+                <select
+                  value={form.actionButtonType}
+                  onChange={e => setField('actionButtonType', e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+                >
+                  <option value="auto">Auto-detect (use category/name)</option>
+                  <option value="practice">Practice</option>
+                  <option value="explore">Explore</option>
+                  <option value="diet">Diet</option>
+                  <option value="measure">Measure</option>
+                  <option value="focus">Focus</option>
+                  <option value="details">Details</option>
+                  <option value="none">None (hide button)</option>
+                </select>
+                <p className="text-xs text-gray-400 mt-1 pl-1">
+                  Override which button appears on the activity card in the app.
+                </p>
               </div>
 
               {error && (

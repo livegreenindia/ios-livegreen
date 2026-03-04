@@ -82,6 +82,7 @@ class WellnessActivityService {
               'isWellnessActivity': true,
               'timeSlot': data['timeSlot'] ?? '',
               'timeSlotOrder': data['timeSlotOrder'] ?? 0,
+              'actionButtonType': data['actionButtonType'] ?? 'auto',
             };
           })
           .where((act) {
@@ -128,6 +129,7 @@ class WellnessActivityService {
               'isWellnessActivity': true,
               'timeSlot': data['timeSlot'] ?? '',
               'timeSlotOrder': data['timeSlotOrder'] ?? 0,
+              'actionButtonType': data['actionButtonType'] ?? 'auto',
             };
           })
           .where((act) {
