@@ -1213,7 +1213,7 @@ Your response:''';
 
   String _formatTargetDate(DateTime? date) {
     if (date == null) return 'N/A';
-    return '${date!.day}-${date!.month.toString().padLeft(2, '0')}-${date!.year}';
+    return '${date.day}-${date.month.toString().padLeft(2, '0')}-${date.year}';
   }
 
   double? _parseNutrient(dynamic value) {
@@ -1742,7 +1742,6 @@ Your response:''';
       'iron': 0,
       'magnesium': 0,
       'potassium': 0,
-      'sodium': 0,
       'zinc': 0,
       'phosphorus': 0,
       'copper': 0,

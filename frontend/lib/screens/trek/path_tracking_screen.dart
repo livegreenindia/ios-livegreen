@@ -127,7 +127,7 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
       GeoPoint? endPoint;
       if (widget.trek!.startPoint != null) {
         endPoint = widget.trek!.startPoint;
-        debugPrint('Using startPoint as destination: ${endPoint!.latitude}, ${endPoint!.longitude}');
+        debugPrint('Using startPoint as destination: ${endPoint!.latitude}, ${endPoint.longitude}');
       } else if (widget.trek!.location != null) {
         endPoint = widget.trek!.location!.geopoint;
         debugPrint('Using location as destination: ${endPoint.latitude}, ${endPoint.longitude}');

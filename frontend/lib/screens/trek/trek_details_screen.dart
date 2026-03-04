@@ -1640,12 +1640,10 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
 class _LegendItem extends StatelessWidget {
   final Color color;
   final String label;
-  final bool isDashed;
 
   const _LegendItem({
     required this.color,
     required this.label,
-    this.isDashed = false,
   });
 
   @override
@@ -1657,8 +1655,8 @@ class _LegendItem extends StatelessWidget {
           width: 24,
           height: 3,
           decoration: BoxDecoration(
-            color: isDashed ? null : color,
-            border: isDashed ? Border.all(color: color, width: 2) : null,
+            color: color,
+            border: null,
           ),
         ),
         const SizedBox(width: 8),

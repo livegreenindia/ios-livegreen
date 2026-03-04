@@ -41,7 +41,7 @@ $clubLink
   // Helper to add event to Google Calendar
     Future<void> _addEventToGoogleCalendar(ClubActivity event) async {
       final title = Uri.encodeComponent(event.title);
-      final details = Uri.encodeComponent(event.content ?? '');
+      final details = Uri.encodeComponent(event.content);
       final location = Uri.encodeComponent(_club?.location ?? '');
       final start = event.eventDate?.toUtc().toIso8601String().replaceAll('-', '').replaceAll(':', '').split('.').first ?? '';
       final end = event.eventDate != null ?
@@ -1019,7 +1019,7 @@ $clubLink
 📅 $dateStr
 📍 ${event.location ?? _club?.location ?? 'Location TBA'}
 
-${event.content ?? ''}
+${event.content}
 
 🌱 Join us at ${_club?.name ?? ''}!
 $eventLink
@@ -1032,7 +1032,7 @@ $eventLink
             const SizedBox(height: 12),
             // Event description
             Text(
-              event.content ?? 'No description',
+              event.content,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             if (event.location != null) ...[
@@ -1108,7 +1108,7 @@ $eventLink
                       final shareText =
                           '''Join the event "${activity.title}" at ${_club?.name ?? ''}!
 
-${activity.content ?? ''}
+${activity.content}
 
 ${_club?.location ?? ''}''';
                       Share.share(shareText, subject: 'LiveGreen Club Event');

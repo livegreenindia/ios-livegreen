@@ -53,13 +53,22 @@ class _TrekListScreenState extends State<TrekListScreen>
   String _searchQuery = '';
   bool _isAdmin = false;
   bool _isInitialized = false; // Flag to prevent double initialization
+
+  // Pagination — increase limit on each "load more" instead of cursor
+  // (safe because getTreks does client-side filtering over limit*2 Firestore docs)
+  int _trekLimit = 20;
+
+  // Google Places per-tab cache — avoids re-fetching on every tab switch
+  final Map<int, List<Trek>> _googleTabCache = {};
+  final Map<int, DateTime> _googleCacheTime = {};
+  static const Duration _googleCacheTtl = Duration(minutes: 10);
   
   // Location state
   Position? _currentPosition;
   bool _isLocationLoading = false;
   String? _locationError;
   // Radius settings per tab (in kilometers)
-  static const double _pathsRadiusKm = 50.0; // 50km radius for trekking paths
+  static const double _pathsRadiusKm = 100.0; // 100km radius for trekking paths
   static const double _fitnessRadiusKm = 25.0; // 25km for fitness locations
   static const double _poiRadiusKm = 25.0; // 25km for POI
   
@@ -107,7 +116,6 @@ class _TrekListScreenState extends State<TrekListScreen>
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(_onTabChanged);
-    _scrollController.addListener(_onScroll);
     _initializeLocation();
     _checkAdminStatus();
   }
@@ -153,28 +161,50 @@ class _TrekListScreenState extends State<TrekListScreen>
   /// Fetch treks from Google Places for the current tab
   Future<void> _fetchGoogleTreks({bool forceRefresh = false}) async {
     if (_currentPosition == null) return;
+    final tab = _tabController.index;
+
+    // Return cached results if still fresh and not forced
+    if (!forceRefresh &&
+        _googleTabCache.containsKey(tab) &&
+        _googleCacheTime.containsKey(tab) &&
+        DateTime.now().difference(_googleCacheTime[tab]!) < _googleCacheTtl) {
+      debugPrint('TrekListScreen: Using cached Google Places for tab $tab');
+      if (mounted) {
+        setState(() => _googleTreks = _googleTabCache[tab]!);
+        _updateMapMarkers();
+      }
+      return;
+    }
+
     setState(() => _isLoadingGoogle = true);
     try {
       final lat = _currentPosition!.latitude;
       final lng = _currentPosition!.longitude;
       List<Trek> googleTreks = [];
 
-      switch (_tabController.index) {
+      switch (tab) {
         case _tabFitness:
           googleTreks = await _googlePlacesService.fetchFitnessPlaces(
-            latitude: lat, longitude: lng, radiusKm: 15);
+              latitude: lat, longitude: lng);
           break;
         case _tabPOI:
-          // POI tab shows only user-submitted places — no external API
+          // POI tab shows only community-approved user-submitted places — no external API
           break;
         case _tabPaths:
         default:
           googleTreks = await _googlePlacesService.fetchTrekkingPlaces(
-            latitude: lat, longitude: lng, radiusKm: 50);
+              latitude: lat, longitude: lng, radiusKm: 100);
           break;
       }
 
-      debugPrint('TrekListScreen: Google Places returned ${googleTreks.length} locations for tab ${_tabController.index}');
+      debugPrint('TrekListScreen: Google Places returned ${googleTreks.length} locations for tab $tab');
+
+      // Only cache non-empty results so a transient API failure doesn't
+      // block the tab for the full TTL period
+      if (googleTreks.isNotEmpty) {
+        _googleTabCache[tab] = googleTreks;
+        _googleCacheTime[tab] = DateTime.now();
+      }
 
       if (mounted) {
         setState(() {
@@ -212,7 +242,7 @@ class _TrekListScreenState extends State<TrekListScreen>
       longitude: _currentPosition!.longitude,
       radiusKm: _searchRadiusKm,
       category: streamCategory,
-      limit: 10,
+      limit: 50,
     ).listen((treks) {
       if (mounted) {
         setState(() {
@@ -317,10 +347,13 @@ class _TrekListScreenState extends State<TrekListScreen>
       _selectedCategory = null;
       _searchQuery = '';
       _searchController.clear();
-      _isLoading = true; // Show loading instead of clearing data
+      _isLoading = true;
+      _trekLimit = 20; // reset pagination on tab change
     });
-    // Fetch fresh Google Places data for the new tab, then reload treks
-    _fetchGoogleTreks().then((_) {
+    // Re-setup nearby stream for the new tab so it fetches the right category
+    _setupNearbyTreksStream();
+    // Always force-refresh so switching tabs never shows stale/empty Google results
+    _fetchGoogleTreks(forceRefresh: true).then((_) {
       if (mounted) _loadTreks();
     });
   }
@@ -368,8 +401,17 @@ class _TrekListScreenState extends State<TrekListScreen>
           longitude: _currentPosition!.longitude,
           radiusKm: _searchRadiusKm,
           category: categoryFilter,
-          limit: 10,
+          limit: 50,
         );
+
+        // For fitness tab with no specific sub-category, filter Firestore
+        // results to only show fitness-related categories (prevents paths/walks
+        // from appearing in the Fitness tab when categoryFilter is null)
+        if (_tabController.index == _tabFitness && _selectedCategory == null) {
+          nearbyTreks = nearbyTreks
+              .where((t) => t.category.isFitnessSubCategory)
+              .toList();
+        }
         
         // Include Google Places treks in nearby section (filtered by category if needed)
         List<Trek> filteredGoogleTreks = _googleTreks;
@@ -406,8 +448,15 @@ class _TrekListScreenState extends State<TrekListScreen>
         treks = await _trekService.getTreks(
           category: categoryFilter,
           searchQuery: null,
-          limit: 20,
+          limit: _trekLimit,
         );
+
+        // For fitness tab with no specific sub-category, filter background
+        // treks to only fitness categories (categoryFilter is null so getTreks
+        // returns everything — we need to narrow it down here)
+        if (_tabController.index == _tabFitness && _selectedCategory == null) {
+          treks = treks.where((t) => t.category.isFitnessSubCategory).toList();
+        }
         
         // Remove duplicates
         treks = treks.where((t) => !nearbyIds.contains(t.id)).toList();
@@ -460,7 +509,7 @@ class _TrekListScreenState extends State<TrekListScreen>
         _nearbyTreks = nearbyTreks;
         _treks = treks;
         _isLoading = false;
-        _hasMoreData = treks.length >= 20;
+        _hasMoreData = treks.length >= _trekLimit;
       });
       
       _updateMapMarkers();
@@ -473,26 +522,38 @@ class _TrekListScreenState extends State<TrekListScreen>
   }
 
   Future<void> _loadMoreTreks() async {
-    if (_isLoadingMore || !_hasMoreData || _treks.isEmpty) return;
+    if (_isLoadingMore || !_hasMoreData) return;
 
-    setState(() => _isLoadingMore = true);
+    setState(() {
+      _isLoadingMore = true;
+      _trekLimit += 20; // expand the page window
+    });
 
     try {
-      // For pagination, we'd need to pass startAfter document
-      // Simplified version just loads more
+      TrekCategory? categoryFilter = _selectedCategory;
+      if (_tabController.index == _tabPOI) {
+        categoryFilter = TrekCategory.pointOfInterest;
+      }
+
       final moreTreks = await _trekService.getTreks(
-        category: _selectedCategory,
+        category: categoryFilter,
         searchQuery: _searchQuery.isNotEmpty ? _searchQuery : null,
-        limit: 20,
+        limit: _trekLimit,
       );
 
-      setState(() {
-        // In real implementation, append to _treks
-        _isLoadingMore = false;
-        _hasMoreData = moreTreks.length >= 20;
-      });
+      // Remove treks already shown in _nearbyTreks to avoid duplicates
+      final nearbyIds = _nearbyTreks.map((t) => t.id).toSet();
+      final newTreks = moreTreks.where((t) => !nearbyIds.contains(t.id)).toList();
+
+      if (mounted) {
+        setState(() {
+          _treks = newTreks;
+          _isLoadingMore = false;
+          _hasMoreData = moreTreks.length >= _trekLimit;
+        });
+      }
     } catch (e) {
-      setState(() => _isLoadingMore = false);
+      if (mounted) setState(() => _isLoadingMore = false);
     }
   }
 
@@ -501,6 +562,7 @@ class _TrekListScreenState extends State<TrekListScreen>
     // Debounce search
     Future.delayed(const Duration(milliseconds: 500), () {
       if (_searchQuery == value) {
+        _trekLimit = 20; // reset pagination on new search
         _loadTreks();
       }
     });
@@ -509,7 +571,8 @@ class _TrekListScreenState extends State<TrekListScreen>
   void _onCategorySelected(TrekCategory? category) {
     setState(() {
       _selectedCategory = _selectedCategory == category ? null : category;
-      _isLoading = true; // Show loading instead of clearing data
+      _isLoading = true;
+      _trekLimit = 20; // reset pagination on category change
     });
     // Re-fetch Google Places data with the new category filter
     if (_tabController.index == _tabPaths || _tabController.index == _tabFitness) {
@@ -1137,10 +1200,24 @@ class _TrekListScreenState extends State<TrekListScreen>
               ),
           ];
         },
-        body: _showMapView ? _buildMapView() : RefreshIndicator(
-          onRefresh: _loadTreks,
-          child: _buildBody(),
-        ),
+        body: _showMapView
+            ? _buildMapView()
+            : NotificationListener<ScrollNotification>(
+                onNotification: (notification) {
+                  if (notification is ScrollUpdateNotification ||
+                      notification is ScrollEndNotification) {
+                    final m = notification.metrics;
+                    if (m.pixels >= m.maxScrollExtent - 300) {
+                      _loadMoreTreks();
+                    }
+                  }
+                  return false;
+                },
+                child: RefreshIndicator(
+                  onRefresh: _loadTreks,
+                  child: _buildBody(),
+                ),
+              ),
       ),
       floatingActionButton: TrekSpeedDialFAB(
         onImportGPX: _importGPX,
@@ -1296,7 +1373,6 @@ class _TrekListScreenState extends State<TrekListScreen>
     }
 
     return CustomScrollView(
-      controller: _scrollController,
       slivers: [
         // Location status banner
         if (_locationError != null && _searchQuery.isEmpty)

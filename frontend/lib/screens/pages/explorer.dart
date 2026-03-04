@@ -1609,9 +1609,8 @@ ${image.conservation.isNotEmpty ? image.conservation : _parseAIResponse(image.an
                                   ),
                                 ],
                               ),
-                              if (image.location.latitude != null &&
-                                  image.location.longitude != null) ...[
-                                const SizedBox(height: 8),
+                              if (true) ...[
+                              const SizedBox(height: 8),
                                 Row(
                                   children: [
                                     Icon(Icons.location_on,
@@ -1619,7 +1618,7 @@ ${image.conservation.isNotEmpty ? image.conservation : _parseAIResponse(image.an
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        'Location: ${image.location.latitude!.toStringAsFixed(4)}, ${image.location.longitude!.toStringAsFixed(4)}',
+                                        'Location: ${image.location.latitude.toStringAsFixed(4)}, ${image.location.longitude.toStringAsFixed(4)}',
                                         style: const TextStyle(
                                           fontSize: 14,
                                           color: Colors.black,

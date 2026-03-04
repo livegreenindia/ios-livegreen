@@ -1,5 +1,5 @@
 ﻿import 'dart:convert';
-import 'dart:developer';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/trek.dart';
 
@@ -7,8 +7,10 @@ import '../models/trek.dart';
 /// so the UI gets results in 1â€“2 seconds instead of 30â€“60.
 class GooglePlacesService {
   static const String _apiKey = 'AIzaSyA59STvjWZcL-k_gipSGBDV6u797zF0Q9M';
-  static const String _baseUrl =
+  static const String _nearbyUrl =
       'https://maps.googleapis.com/maps/api/place/nearbysearch/json';
+  static const String _textUrl =
+      'https://maps.googleapis.com/maps/api/place/textsearch/json';
 
   // â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -25,7 +27,10 @@ class GooglePlacesService {
     return Trek(
       id: 'gplace_${place['place_id']}',
       title: name,
-      description: place['vicinity'] as String? ?? '',
+      // Text Search returns formatted_address; Nearby Search returns vicinity
+      description: (place['vicinity'] as String?) ??
+          (place['formatted_address'] as String?) ??
+          '',
       imageUrl: (place['photos'] as List?)?.isNotEmpty == true
           ? 'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400'
               '&photoreference=${place['photos'][0]['photo_reference']}'
@@ -44,10 +49,10 @@ class GooglePlacesService {
       usersToday: 0,
       rating: (place['rating'] as num?)?.toDouble() ?? 0,
       reviewCount: (place['user_ratings_total'] as num?)?.toInt() ?? 0,
-      startPoint: GeoPoint(latitude: lat as double, longitude: lng as double),
-      endPoint: GeoPoint(latitude: lat as double, longitude: lng as double),
+      startPoint: GeoPoint(latitude: lat, longitude: lng),
+      endPoint: GeoPoint(latitude: lat, longitude: lng),
       location: TrekLocation.fromGeoPoint(
-          GeoPoint(latitude: lat as double, longitude: lng as double)),
+          GeoPoint(latitude: lat, longitude: lng)),
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
       isPublic: true,
@@ -65,7 +70,11 @@ class GooglePlacesService {
           await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
       if (resp.statusCode != 200) return [];
       final data = json.decode(resp.body) as Map<String, dynamic>;
-      log('Google Places ($tag): ${(data['results'] as List?)?.length ?? 0} results');
+      final status = data['status'] as String? ?? 'UNKNOWN';
+      debugPrint('Google Places ($tag): ${(data['results'] as List?)?.length ?? 0} results  [$status]');
+      if (status == 'REQUEST_DENIED' || status == 'OVER_QUERY_LIMIT') {
+        debugPrint('  >> error_message: ${data['error_message']}');
+      }
       final results = data['results'] as List? ?? [];
       final treks = <Trek>[];
       for (final place in results) {
@@ -74,9 +83,81 @@ class GooglePlacesService {
       }
       return treks;
     } catch (e) {
-      log('Google Places error ($tag): $e');
+      debugPrint('Google Places error ($tag): $e');
       return [];
     }
+  }
+
+  /// Text Search fetch with automatic next_page_token pagination.
+  /// [radiusMeters] is optional — when null, no radius is sent and Google
+  /// returns the best matches globally biased by [latitude]/[longitude].
+  /// When provided it acts as a soft location bias (NOT a hard cap like
+  /// Nearby Search). Each page returns up to 20 results; max 3 pages = 60.
+  Future<List<Trek>> _fetchText(
+    String query,
+    double latitude,
+    double longitude,
+    TrekCategory category,
+    String tag, {
+    int? radiusMeters,
+  }) async {
+    final treks = <Trek>[];
+    String? nextPageToken;
+    int page = 0;
+
+    do {
+      try {
+        Uri uri;
+        if (nextPageToken != null) {
+          uri = Uri.parse('$_textUrl?pagetoken=$nextPageToken&key=$_apiKey');
+        } else if (radiusMeters != null) {
+          uri = Uri.parse(
+              '$_textUrl?query=${Uri.encodeComponent(query)}'
+              '&location=$latitude,$longitude'
+              '&radius=$radiusMeters'
+              '&key=$_apiKey');
+        } else {
+          // No radius — pure location-biased search, best for dense urban areas
+          uri = Uri.parse(
+              '$_textUrl?query=${Uri.encodeComponent(query)}'
+              '&location=$latitude,$longitude'
+              '&key=$_apiKey');
+        }
+
+        // Google requires ~2s before using a page token
+        if (nextPageToken != null) {
+          await Future.delayed(const Duration(seconds: 2));
+        }
+
+        final resp =
+            await http.get(uri).timeout(const Duration(seconds: 12));
+        if (resp.statusCode != 200) break;
+
+        final data = json.decode(resp.body) as Map<String, dynamic>;
+        final status = data['status'] as String? ?? 'UNKNOWN';
+        final results = data['results'] as List? ?? [];
+        debugPrint('Google Text Search ($tag) pg$page: ${results.length} results  status=[$status]');
+        if (status == 'REQUEST_DENIED' || status == 'OVER_QUERY_LIMIT') {
+          debugPrint('  >> error_message: ${data['error_message']}');
+        }
+        if (results.isEmpty) break; // no point paginating an empty page
+
+        for (final place in results) {
+          final t = _placeToTrek(
+              place as Map<String, dynamic>, category,
+              tag: tag);
+          if (t != null) treks.add(t);
+        }
+
+        nextPageToken = data['next_page_token'] as String?;
+        page++;
+      } catch (e) {
+        debugPrint('Google Text Search error ($tag) pg$page: $e');
+        break;
+      }
+    } while (nextPageToken != null && page < 3); // max 3 pages = 60 results
+
+    return treks;
   }
 
   // â”€â”€ public methods â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -85,35 +166,38 @@ class GooglePlacesService {
   Future<List<Trek>> fetchTrekkingPlaces({
     required double latitude,
     required double longitude,
-    double radiusKm = 50,
+    double radiusKm = 100,
   }) async {
-    final r = (radiusKm * 1000).toInt();
-    final base = '$_baseUrl?location=$latitude,$longitude&radius=$r';
+    final r = (radiusKm * 1000).toInt().clamp(0, 50000);
 
     final results = await Future.wait([
       // Hills, peaks, mountains, betta — natural climbing destinations
-      _fetch(
-        '$base&type=natural_feature&keyword=hill+peak+mountain+betta+giri&key=$_apiKey',
-        TrekCategory.trekkingPoint,
-        'hills',
+      _fetchText(
+        'trekking hills mountains betta peak giri',
+        latitude, longitude,
+        TrekCategory.trekkingPoint, 'hills',
+        radiusMeters: r,
       ),
       // Forts and hilltop heritage — most Indian trekking spots are forts
-      _fetch(
-        '$base&type=point_of_interest&keyword=fort+durga+kota+hilltop+trek&key=$_apiKey',
-        TrekCategory.trekkingPoint,
-        'forts',
+      _fetchText(
+        'fort hilltop trek durga kota',
+        latitude, longitude,
+        TrekCategory.trekkingPoint, 'forts',
+        radiusMeters: r,
       ),
       // Viewpoints and summits
-      _fetch(
-        '$base&type=point_of_interest&keyword=viewpoint+summit+trekking+hiking+trail&key=$_apiKey',
-        TrekCategory.trekkingPoint,
-        'viewpoints',
+      _fetchText(
+        'viewpoint summit hiking trail trekking',
+        latitude, longitude,
+        TrekCategory.trekkingPoint, 'viewpoints',
+        radiusMeters: r,
       ),
       // Nature walks — forests, wildlife, valley routes
-      _fetch(
-        '$base&type=natural_feature&keyword=forest+valley+nature+walk+falls&key=$_apiKey',
-        TrekCategory.natureWalk,
-        'nature',
+      _fetchText(
+        'nature walk forest valley waterfall wildlife reserve',
+        latitude, longitude,
+        TrekCategory.natureWalk, 'nature',
+        radiusMeters: r,
       ),
     ]);
 
@@ -121,34 +205,58 @@ class GooglePlacesService {
     return results.expand((l) => l).where((t) => seen.add(t.id)).toList();
   }
 
-  /// Fetch fitness places â€” 4 parallel requests.
+  /// Fetch fitness places — 5 parallel Text Search queries WITHOUT a radius
+  /// so Google returns the most-relevant matches biased by location rather
+  /// than being capped at a fixed radius. Results typically cover 10–20 km.
   Future<List<Trek>> fetchFitnessPlaces({
     required double latitude,
     required double longitude,
-    double radiusKm = 15,
   }) async {
-    final r = (radiusKm * 1000).toInt();
-    final base = '$_baseUrl?location=$latitude,$longitude&radius=$r';
-
     final results = await Future.wait([
-      _fetch('$base&type=gym&key=$_apiKey', TrekCategory.gym, 'gym'),
-      _fetch('$base&type=spa&keyword=yoga&key=$_apiKey', TrekCategory.yogaCenter, 'yoga'),
-      _fetch('$base&type=stadium&key=$_apiKey', TrekCategory.sportsClub, 'sports'),
-      _fetch('$base&keyword=swimming+pool&key=$_apiKey', TrekCategory.swimmingPool, 'swimming'),
+      // Gyms and fitness centers
+      _fetchText(
+        'gym fitness center workout crossfit aerobics',
+        latitude, longitude,
+        TrekCategory.gym, 'gym',
+      ),
+      // Yoga, pilates, meditation studios
+      _fetchText(
+        'yoga studio yoga class meditation center pilates zumba',
+        latitude, longitude,
+        TrekCategory.yogaCenter, 'yoga',
+      ),
+      // Sports clubs — badminton, tennis, cricket, football
+      _fetchText(
+        'sports club badminton court tennis court cricket ground football',
+        latitude, longitude,
+        TrekCategory.sportsClub, 'sports',
+      ),
+      // Swimming pools
+      _fetchText(
+        'swimming pool aquatic center',
+        latitude, longitude,
+        TrekCategory.swimmingPool, 'swimming',
+      ),
+      // Dance, martial arts, wellness
+      _fetchText(
+        'dance studio martial arts boxing gymnasium wellness center',
+        latitude, longitude,
+        TrekCategory.artsCenter, 'arts',
+      ),
     ]);
 
     final seen = <String>{};
     return results.expand((l) => l).where((t) => seen.add(t.id)).toList();
   }
 
-  /// Fetch POI places â€” 3 parallel requests.
+  /// Fetch POI places – 3 parallel Nearby Search requests.
   Future<List<Trek>> fetchPOIPlaces({
     required double latitude,
     required double longitude,
     double radiusKm = 50,
   }) async {
     final r = (radiusKm * 1000).toInt();
-    final base = '$_baseUrl?location=$latitude,$longitude&radius=$r';
+    final base = '$_nearbyUrl?location=$latitude,$longitude&radius=$r';
 
     final results = await Future.wait([
       _fetch('$base&type=tourist_attraction&key=$_apiKey', TrekCategory.pointOfInterest, 'attraction'),
