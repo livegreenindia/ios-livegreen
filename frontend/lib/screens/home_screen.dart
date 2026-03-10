@@ -733,9 +733,12 @@ Your response:''';
       for (final key in jsonData.keys) {
         final value = jsonData[key];
         if (value is num) {
-          nutritionData[key] = value.toDouble();
+          final parsed = value.toDouble();
+          nutritionData[key] = parsed.isFinite ? parsed : 0.0;
         } else if (value is String) {
-          nutritionData[key] = double.tryParse(value) ?? 0.0;
+          final parsed = double.tryParse(value);
+          nutritionData[key] =
+              (parsed != null && parsed.isFinite) ? parsed : 0.0;
         } else {
           nutritionData[key] = 0.0;
         }
@@ -1226,6 +1229,33 @@ Your response:''';
     return null;
   }
 
+  double _safeDisplayDouble(dynamic value, {double fallback = 0.0}) {
+    final parsed = value is num ? value.toDouble() : double.tryParse('$value');
+    if (parsed == null || !parsed.isFinite) return fallback;
+    return parsed;
+  }
+
+  int _safeDisplayInt(dynamic value, {int fallback = 0}) {
+    final parsed = _safeDisplayDouble(value, fallback: fallback.toDouble());
+    return parsed.round();
+  }
+
+  String _safeFixed(dynamic value, int fractionDigits,
+      {String fallback = '0'}) {
+    final fallbackValue = double.tryParse(fallback) ?? 0.0;
+    final parsed = _safeDisplayDouble(value, fallback: fallbackValue);
+    return parsed.toStringAsFixed(fractionDigits);
+  }
+
+  double _safePercentage(double numerator, double denominator) {
+    if (!numerator.isFinite || !denominator.isFinite || denominator <= 0) {
+      return 0.0;
+    }
+    final result = (numerator / denominator) * 100;
+    if (!result.isFinite) return 0.0;
+    return result.clamp(0.0, 100.0);
+  }
+
   Map<String, dynamic> _calculateTargetValues() {
     final currentWeight = widget.profile.weight;
     final height = widget.profile.height;
@@ -1250,58 +1280,43 @@ Your response:''';
     // Calculate weight to lose/gain
     final weightDifference = currentWeight - targetWeight;
 
-    // Calculate calories needed to reach target BMI weight
-    // Use Mifflin-St Jeor equation for BMR and adjust for target weight
+    // Calculate calories needed based on current weight and activity level
+    // Use the same BMR formula as the profile getter for consistency
     double bmr;
     if (gender.toLowerCase() == 'male') {
-      bmr = (10 * targetWeight) + (6.25 * height) - (5 * age) + 5;
+      bmr =
+          88.362 + (13.397 * currentWeight) + (4.799 * height) - (5.677 * age);
     } else {
-      bmr = (10 * targetWeight) + (6.25 * height) - (5 * age) - 161;
+      bmr =
+          447.593 + (9.247 * currentWeight) + (3.098 * height) - (4.330 * age);
     }
 
-    // Apply activity factor to calculate TDEE for target weight
+    // Apply activity factor to calculate TDEE for current weight
     double activityFactor = 1.2; // Sedentary default
     final activityLevel = widget.profile.activityLevel.toLowerCase();
     if (activityLevel == 'light')
       activityFactor = 1.375;
     else if (activityLevel == 'moderate')
       activityFactor = 1.55;
-    else if (activityLevel == 'active')
-      activityFactor = 1.725;
     else if (activityLevel == 'very active') activityFactor = 1.9;
 
-    final targetCalories = bmr * activityFactor;
+    var targetCalories = (bmr * activityFactor) - 500;
 
-    // Apply BMI-based calorie adjustment to target calories
-    double adjustedTargetCalories = targetCalories;
-    if (currentBMI > 24.9) {
-      // Weight loss: 0.5-1.0kg per week = 500-1000 calorie deficit
-      // Scale deficit based on how overweight the person is
-      final bmiExcess = currentBMI - 24.9;
-      final deficitPerPoint =
-          100.0; // 100 calories deficit per BMI point over 24.9
-      final maxDeficit = 1000.0; // Maximum 1000 calorie deficit
-      final deficit = (bmiExcess * deficitPerPoint).clamp(200.0, maxDeficit);
-      adjustedTargetCalories = targetCalories - deficit;
-      print('=== DEBUG: BMI excess: $bmiExcess, Calorie deficit: $deficit ===');
-    } else if (currentBMI < 18.5) {
-      // Weight gain: 0.25-0.5kg per week = 250-500 calorie surplus
-      // Scale surplus based on how underweight the person is
-      final bmiDeficit = 18.5 - currentBMI;
-      final surplusPerPoint =
-          150.0; // 150 calories surplus per BMI point under 18.5
-      final maxSurplus = 500.0; // Maximum 500 calorie surplus
-      final surplus = (bmiDeficit * surplusPerPoint).clamp(150.0, maxSurplus);
-      adjustedTargetCalories = targetCalories + surplus;
-      print(
-          '=== DEBUG: BMI deficit: $bmiDeficit, Calorie surplus: $surplus ===');
-    }
-    // For normal BMI (18.5-24.9), keep maintenance calories
-
-    print('=== DEBUG: Calculated target calories: $targetCalories ===');
-    print('=== DEBUG: Adjusted target calories: $adjustedTargetCalories ===');
     print('=== DEBUG: BMR: $bmr ===');
-    print('=== DEBUG: Activity factor: $activityFactor ===');
+    print('=== DEBUG: Activity Factor: $activityFactor ===');
+    print('=== DEBUG: Initial Target Calories: $targetCalories ===');
+
+    // Ensure minimum calories: if target < BMR, set to BMR + 250
+    bool targetCaloriesAdjusted = false;
+    if (targetCalories < bmr) {
+      targetCalories = bmr + 250;
+      targetCaloriesAdjusted = true;
+      print(
+          '=== DEBUG: Target calories < BMR, setting to BMR + 250: $targetCalories ===');
+    } else {
+      print(
+          '=== DEBUG: Target calories >= BMR, keeping original: $targetCalories ===');
+    }
 
     // Determine weight goal based on BMI difference
     String weightGoal = 'Maintain Weight';
@@ -1312,7 +1327,44 @@ Your response:''';
     }
 
     // Calculate time to reach goal (weeks)
-    final weeksToGoal = weightDifference.abs() / 0.75; // 0.75kg per week
+    final weightChangePotential = WeightEntry.calculateWeightChangePotential(
+      currentWeight: widget.profile.weight,
+      currentBMI: currentBMI,
+      targetWeight: targetWeight,
+      height: widget.profile.height,
+      age: widget.profile.age,
+      gender: widget.profile.gender,
+      activityLevel: widget.profile.activityLevel,
+      goal: widget.profile.goal,
+    );
+    // Calculate actual weight loss based on calorie deficit
+    // 1 kg of fat = 7700 calories approximately
+    final tdee = bmr * activityFactor; // Total Daily Energy Expenditure
+    final dailyCalorieDeficit = tdee - targetCalories;
+    double actualWeeklyChange;
+
+    if (dailyCalorieDeficit > 0) {
+      // Weight loss: positive deficit means burning more than consuming
+      actualWeeklyChange = (dailyCalorieDeficit * 7) / 7700; // kg per week
+    } else if (dailyCalorieDeficit < 0) {
+      // Weight gain: negative deficit means consuming more than burning
+      actualWeeklyChange =
+          (dailyCalorieDeficit.abs() * 7) / 7700; // kg per week (gain)
+    } else {
+      // Maintenance: no change
+      actualWeeklyChange = 0.0;
+    }
+
+    // Cap at reasonable limits (max 1kg per week loss, 0.5kg per week gain)
+    if (actualWeeklyChange > 1.0) {
+      actualWeeklyChange = 1.0;
+    } else if (actualWeeklyChange > 0 && actualWeeklyChange < 0.1) {
+      actualWeeklyChange = 0.1; // Minimum measurable loss
+    }
+
+    final weeksToGoal = actualWeeklyChange > 0
+        ? weightDifference.abs() / actualWeeklyChange
+        : 0.0;
 
     final result = {
       'currentBMI': currentBMI,
@@ -1320,7 +1372,11 @@ Your response:''';
       'currentWeight': currentWeight,
       'targetWeight': targetWeight,
       'weightDifference': weightDifference,
-      'targetCalories': adjustedTargetCalories,
+      'targetCalories': targetCalories,
+      'targetCaloriesAdjusted': targetCaloriesAdjusted,
+      'actualWeeklyChange': actualWeeklyChange,
+      'dailyCalorieDeficit': dailyCalorieDeficit,
+      'tdee': tdee,
       'baseCalories':
           widget.profile.dailyNutrientRequirements['calories'] ?? 2000.0,
       'weeksToGoal': weeksToGoal,
@@ -1337,14 +1393,9 @@ Your response:''';
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.block, color: AppColors.error),
-            const SizedBox(width: AppSpacing.sm),
-            Text(
-              'Not a Food Item',
-              style: GoogleFonts.manrope(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            Icon(Icons.block, color: Colors.red.shade600),
+            const SizedBox(width: 8),
+            const Text('Not a Food Item'),
           ],
         ),
         content: Column(
@@ -1353,53 +1404,263 @@ Your response:''';
           children: [
             Text(
               '"$foodName" doesn\'t appear to be a food item.',
-              style: GoogleFonts.manrope(fontSize: 16),
+              style: const TextStyle(fontSize: 16),
             ),
-            const SizedBox(height: AppSpacing.md),
-            Text(
+            const SizedBox(height: 12),
+            const Text(
               'This app only tracks food and nutrition. Please enter actual food items like:',
-              style: GoogleFonts.manrope(
-                fontSize: 14,
-                color: AppColors.textSecondaryLight,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey),
             ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
+            const SizedBox(height: 8),
+            const Text(
               '• Fruits: apple, banana, orange\n'
               '• Vegetables: carrot, broccoli, tomato\n'
               '• Proteins: chicken, fish, eggs\n'
               '• Grains: rice, bread, pasta\n'
               '• Dairy: milk, cheese, yogurt',
-              style: GoogleFonts.manrope(
-                fontSize: 12,
-                color: AppColors.textSecondaryLight,
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: Text(
-              'OK',
-              style: GoogleFonts.manrope(
-                color: Colors.greenAccent,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            child: const Text('OK'),
           ),
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
               _clearFoodForm();
             },
-            child: Text(
-              'Clear & Try Again',
-              style: GoogleFonts.manrope(
-                color: Colors.greenAccent,
-                fontWeight: FontWeight.w600,
-              ),
+            child: const Text('Clear & Try Again'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _checkActivityLevelAndBMRCalories(
+      UserProfile oldProfile, UserProfile newProfile) {
+    // Check if activity level changed
+    if (oldProfile.activityLevel != newProfile.activityLevel) {
+      // Calculate target calories for new profile
+      final targets = _calculateTargetValuesForProfile(newProfile);
+      final targetCalories = targets['targetCalories'] ?? 0.0;
+      final bmr = newProfile.bmr;
+
+      // Check if BMR > target calories
+      if (bmr > targetCalories) {
+        _showBMROverTargetCaloriesWarning(
+            targetCalories, bmr, newProfile.activityLevel);
+      }
+    }
+  }
+
+  void _showBMROverTargetCaloriesWarning(
+      double targetCalories, double bmr, String activityLevel) {
+    final safeBmr = _safeDisplayInt(bmr);
+    final safeTargetCalories = _safeDisplayInt(targetCalories);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red.shade600),
+            const SizedBox(width: 8),
+            const Text('Activity Level Warning'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '⚠️ Your BMR ($safeBmr kcal) is higher than your target calories ($safeTargetCalories kcal) for activity level: $activityLevel',
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
+            const SizedBox(height: 12),
+            const Text(
+              'This means your target calories may not provide enough energy for basic bodily functions. Consider:',
+            ),
+            const SizedBox(height: 8),
+            ...const [
+              '• Increasing your activity level to "Moderate" or higher',
+              '• Adjusting your weight loss goal to be less aggressive',
+              '• Ensuring adequate nutrition for your health',
+            ].map((tip) => Padding(
+                  padding: const EdgeInsets.only(left: 16, top: 4),
+                  child: Text('• $tip'),
+                )),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('I Understand'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              // Navigate back to profile to adjust activity level
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => ProfileSetupPage(
+                    cameras: widget.cameras,
+                    existingProfile: widget.profile,
+                    onProfileSaved: (updatedProfile) {
+                      if (widget.onProfileUpdated != null) {
+                        widget.onProfileUpdated!(updatedProfile);
+                      }
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('Adjust Activity Level'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Map<String, dynamic> _calculateTargetValuesForProfile(UserProfile profile) {
+    final currentWeight = profile.weight;
+    final height = profile.height;
+    final age = profile.age;
+    final gender = profile.gender;
+
+    // Calculate current BMI
+    final heightInMeters = height / 100;
+    final currentBMI = currentWeight / (heightInMeters * heightInMeters);
+
+    // Determine target weight based on BMI
+    double targetWeight;
+    if (currentBMI < 18.5) {
+      targetWeight =
+          18.5 * (heightInMeters * heightInMeters); // Underweight target
+    } else if (currentBMI > 25) {
+      targetWeight =
+          22.0 * (heightInMeters * heightInMeters); // Normal weight target
+    } else {
+      targetWeight = currentWeight; // Already in healthy range
+    }
+
+    final weightDifference = currentWeight - targetWeight;
+
+    // Calculate calories needed based on current weight and activity level
+    // Use the same BMR formula as the profile getter for consistency
+    double bmr;
+    if (gender.toLowerCase() == 'male') {
+      bmr =
+          88.362 + (13.397 * currentWeight) + (4.799 * height) - (5.677 * age);
+    } else {
+      bmr =
+          447.593 + (9.247 * currentWeight) + (3.098 * height) - (4.330 * age);
+    }
+
+    // Apply activity factor to calculate TDEE for current weight
+    double activityFactor = 1.2; // Sedentary default
+    final activityLevel = profile.activityLevel.toLowerCase();
+    if (activityLevel == 'light')
+      activityFactor = 1.375;
+    else if (activityLevel == 'moderate')
+      activityFactor = 1.55;
+    else if (activityLevel == 'very active') activityFactor = 1.9;
+
+    var targetCalories = (bmr * activityFactor) - 500;
+
+    return {
+      'targetCalories': targetCalories,
+      'bmr': bmr,
+    };
+  }
+
+  void _showActivityLevelDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber, color: Colors.orange.shade600),
+            const SizedBox(width: 8),
+            const Text('Change Your Activity Level'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'To lose 0.5kg per week, increase your activity level:',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              '🏃️ Moderate (3-5 days/week)',
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '• Moderate exercise 3-5 days per week\n'
+              '• Will help you lose 0.5kg per week',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              '🏃️ Very Active (6-7 days/week)',
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '• Hard exercise 6-7 days per week\n'
+              '• Will help you lose 0.5kg per week',
+              style: TextStyle(fontSize: 14),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Close dialog
+              // Navigate to profile setup page
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => ProfileSetupPage(
+                    cameras: widget.cameras,
+                    existingProfile: widget.profile,
+                    onProfileSaved: (updatedProfile) {
+                      print(
+                          '=== DEBUG: ProfileSetupPage onProfileSaved called ===');
+                      print(
+                          '=== DEBUG: New activity level: ${updatedProfile.activityLevel} ===');
+
+                      // Check if activity level changed and BMR > target calories
+                      _checkActivityLevelAndBMRCalories(
+                          widget.profile, updatedProfile);
+
+                      // Update profile and refresh
+                      if (widget.onProfileUpdated != null) {
+                        widget.onProfileUpdated!(updatedProfile);
+                      }
+                      Navigator.of(context).pop(); // Go back to home screen
+                    },
+                  ),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange.shade600,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('OK'),
           ),
         ],
       ),
@@ -1410,18 +1671,11 @@ Your response:''';
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: Color(0xFF0E2E20),
         title: Row(
           children: [
-            Icon(Icons.error_outline, color: Colors.greenAccent),
-            const SizedBox(width: AppSpacing.sm),
-            Text(
-              'Food Not Found',
-              style: GoogleFonts.manrope(
-                fontWeight: FontWeight.w600,
-                color: Color(0xFFE8F5E9),
-              ),
-            ),
+            Icon(Icons.error_outline, color: Colors.red.shade600),
+            const SizedBox(width: 8),
+            const Text('Food Not Found'),
           ],
         ),
         content: Column(
@@ -1430,52 +1684,31 @@ Your response:''';
           children: [
             Text(
               '"$foodName" not found in our database.',
-              style: GoogleFonts.manrope(
-                fontSize: 16,
-                color: Color(0xFFE8F5E9),
-              ),
+              style: const TextStyle(fontSize: 16),
             ),
-            const SizedBox(height: AppSpacing.md),
-            Text(
+            const SizedBox(height: 12),
+            const Text(
               'Would you like to enter nutrients manually?',
-              style: GoogleFonts.manrope(
-                fontSize: 14,
-                color: Color(0xFFE8F5E9),
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey),
             ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
+            const SizedBox(height: 8),
+            const Text(
               'Try common names like: apple, chicken, rice, banana',
-              style: GoogleFonts.manrope(
-                fontSize: 12,
-                color: Color(0xFFE8F5E9),
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: Text(
-              'Cancel',
-              style: GoogleFonts.manrope(
-                color: Color(0xFFE8F5E9),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
               // Retry with different name
             },
-            child: Text(
-              'Try Again',
-              style: GoogleFonts.manrope(
-                color: Colors.greenAccent,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            child: const Text('Try Again'),
           ),
           ElevatedButton(
             onPressed: () {
@@ -1484,17 +1717,10 @@ Your response:''';
               _showManualNutrientDialog(foodName);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.greenAccent,
-              foregroundColor: Color(0xFF0A1A12),
-              elevation: AppElevation.sm,
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
             ),
-            child: Text(
-              'Enter Manually',
-              style: GoogleFonts.manrope(
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF0A1A12),
-              ),
-            ),
+            child: const Text('Enter Manually'),
           ),
         ],
       ),
@@ -1567,12 +1793,9 @@ Your response:''';
                   ),
                 ),
                 const SizedBox(height: 12),
-                Text(
+                const Text(
                   'Detailed Fat Breakdown:',
-                  style: GoogleFonts.manrope(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -2045,7 +2268,7 @@ Your response:''';
             ),
           ],
         ),
-        backgroundColor: AppColors.info,
+        backgroundColor: Colors.blue,
         duration: Duration(seconds: 3),
       ),
     );
@@ -2723,7 +2946,7 @@ Your response:''';
   double _getProgressPercentage(String nutrient) {
     final daily = widget.profile.dailyNutrientRequirements[nutrient] ?? 1;
     final consumed = _totalNutrients[nutrient] ?? 0;
-    return (consumed / daily * 100).clamp(0.0, 100.0);
+    return _safePercentage(consumed, daily);
   }
 
   Widget _buildNutrientBox(String name, String emoji, int consumed, int daily,
@@ -2732,13 +2955,13 @@ Your response:''';
     final isOverGoal = percentage >= 100;
 
     return Container(
-      margin: const EdgeInsets.all(AppSpacing.xs),
-      padding: const EdgeInsets.all(AppSpacing.md),
+      margin: const EdgeInsets.all(4.0),
+      padding: const EdgeInsets.all(12.0),
       decoration: BoxDecoration(
-        color: Color(0xFF0E2E20),
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isOverGoal ? Colors.greenAccent : color.withOpacity(0.3),
+          color: isOverGoal ? Colors.red : color.withOpacity(0.3),
           width: 2,
         ),
       ),
@@ -2751,34 +2974,34 @@ Your response:''';
                 emoji,
                 style: const TextStyle(fontSize: 20),
               ),
-              const SizedBox(width: AppSpacing.sm),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   name,
-                  style: GoogleFonts.manrope(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: Colors.greenAccent,
+                    color: Color.fromARGB(255, 13, 71, 161),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: 8),
           Text(
             '$consumed / $daily $unit',
-            style: GoogleFonts.manrope(
+            style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: isOverGoal ? AppColors.error : AppColors.info,
+              color: isOverGoal ? Colors.red : Color.fromARGB(255, 13, 71, 161),
             ),
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: 8),
           Container(
             height: 8,
             decoration: BoxDecoration(
-              color: isOverGoal ? AppColors.error : color,
-              borderRadius: BorderRadius.circular(AppRadius.xs),
+              color: isOverGoal ? Colors.red : color,
+              borderRadius: BorderRadius.circular(4),
             ),
             child: FractionallySizedBox(
               alignment: Alignment.centerLeft,
@@ -2786,20 +3009,20 @@ Your response:''';
               child: Container(
                 decoration: BoxDecoration(
                   color: isOverGoal
-                      ? AppColors.error.withOpacity(0.8)
-                      : AppColors.info,
-                  borderRadius: BorderRadius.circular(AppRadius.xs),
+                      ? Color.fromARGB(255, 139, 0, 0)
+                      : Color.fromARGB(255, 13, 71, 161),
+                  borderRadius: BorderRadius.circular(4),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: AppSpacing.xs),
+          const SizedBox(height: 4),
           Text(
             '${percentage.round()}%',
-            style: GoogleFonts.manrope(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,
-              color: isOverGoal ? AppColors.error : AppColors.info,
+              color: isOverGoal ? Colors.red : Color.fromARGB(255, 13, 71, 161),
             ),
           ),
         ],
@@ -2809,19 +3032,21 @@ Your response:''';
 
   Widget _buildHealthLimitCard(
       String label, double current, double limit, String unit) {
-    final percentage = (current / limit * 100).clamp(0.0, 100.0);
+    final safeCurrent = _safeDisplayDouble(current);
+    final safeLimit = _safeDisplayDouble(limit);
+    final percentage = _safePercentage(safeCurrent, safeLimit);
     final isOverLimit = percentage >= 100;
 
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-      padding: const EdgeInsets.all(AppSpacing.lg),
+      margin: const EdgeInsets.only(bottom: 16.0),
+      padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
-        color: Color(0xFF0E2E20),
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.grey.withOpacity(0.1),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -2835,55 +3060,55 @@ Your response:''';
             children: [
               Text(
                 label,
-                style: GoogleFonts.manrope(
+                style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFFE8F5E9),
+                  color: Color.fromARGB(255, 117, 117, 117),
                 ),
               ),
               Text(
                 '${percentage.round()}%',
-                style: GoogleFonts.manrope(
+                style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFFE8F5E9),
+                  color: Color.fromARGB(255, 117, 117, 117),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: 8),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                current.toStringAsFixed(1),
-                style: GoogleFonts.manrope(
+                _safeFixed(safeCurrent, 1),
+                style: TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFFE8F5E9),
+                  color: Color.fromARGB(255, 33, 33, 33),
                   height: 1.0,
                 ),
               ),
-              const SizedBox(width: AppSpacing.sm),
+              const SizedBox(width: 8),
               Padding(
                 padding: const EdgeInsets.only(bottom: 4.0),
                 child: Text(
-                  '/ ${limit.toInt()}$unit',
-                  style: GoogleFonts.manrope(
+                  '/ ${_safeDisplayInt(safeLimit)}$unit',
+                  style: TextStyle(
                     fontSize: 20,
-                    color: Color(0xFFE8F5E9),
+                    color: Color.fromARGB(255, 189, 189, 189),
                     fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: 12),
           Container(
             height: 8,
             decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(AppRadius.xs),
+              color: Color.fromARGB(255, 158, 158, 158),
+              borderRadius: BorderRadius.circular(4),
             ),
             child: FractionallySizedBox(
               alignment: Alignment.centerLeft,
@@ -2891,9 +3116,9 @@ Your response:''';
               child: Container(
                 decoration: BoxDecoration(
                   color: isOverLimit
-                      ? AppColors.error.withOpacity(0.8)
-                      : Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(AppRadius.xs),
+                      ? Color.fromARGB(255, 139, 0, 0)
+                      : Color.fromARGB(255, 158, 158, 158),
+                  borderRadius: BorderRadius.circular(4),
                 ),
               ),
             ),
@@ -2905,15 +3130,20 @@ Your response:''';
 
   Widget _buildCircularCalorieDisplay() {
     final targets = _calculateTargetValues();
-    final caloriesConsumed = _totalNutrients['calories'] ?? 0.0;
-    final targetCaloriesFromTargets = targets['targetCalories'];
-    final baseCaloriesFromDaily = widget
-        .profile.dailyNutrientRequirements['calories']; // Use getter directly
+    final caloriesConsumed = _safeDisplayDouble(_totalNutrients['calories']);
+    final targetCaloriesFromTargets =
+        _safeDisplayDouble(targets['targetCalories'], fallback: double.nan);
+    final baseCaloriesFromDaily = _safeDisplayDouble(
+      widget.profile.dailyNutrientRequirements['calories'],
+      fallback: 2000.0,
+    );
     final caloriesRequired =
-        targetCaloriesFromTargets ?? baseCaloriesFromDaily ?? 2000.0;
-    final percentage =
-        (caloriesConsumed / caloriesRequired * 100).clamp(0.0, 100.0);
-    final remaining = caloriesRequired - caloriesConsumed;
+        targetCaloriesFromTargets.isFinite && targetCaloriesFromTargets > 0
+            ? targetCaloriesFromTargets
+            : (baseCaloriesFromDaily > 0 ? baseCaloriesFromDaily : 2000.0);
+    final percentage = _safePercentage(caloriesConsumed, caloriesRequired);
+    final remainingRaw = caloriesRequired - caloriesConsumed;
+    final remaining = remainingRaw.isFinite ? remainingRaw : 0.0;
 
     print('=== DEBUG: Calorie Display Values ===');
     print('=== DEBUG: Calories consumed: $caloriesConsumed ===');
@@ -2938,7 +3168,7 @@ Your response:''';
             height: 120,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: AppColors.surfaceLight,
+              color: Colors.grey.shade200,
               border: Border.all(color: Colors.grey.shade300, width: 2),
             ),
           ),
@@ -2951,7 +3181,7 @@ Your response:''';
               strokeWidth: 8,
               backgroundColor: Colors.grey.shade300,
               valueColor: AlwaysStoppedAnimation<Color>(
-                percentage >= 100 ? AppColors.error : AppColors.success,
+                percentage >= 100 ? Colors.red.shade600 : Colors.green.shade600,
               ),
             ),
           ),
@@ -2962,39 +3192,43 @@ Your response:''';
               Icon(
                 Icons.local_fire_department,
                 size: 24,
-                color: percentage >= 100 ? AppColors.error : AppColors.success,
+                color: percentage >= 100
+                    ? Colors.red.shade600
+                    : Colors.green.shade600,
               ),
               const SizedBox(height: 4),
               Text(
-                '${caloriesConsumed.toInt()}',
-                style: GoogleFonts.manrope(
+                '${_safeDisplayInt(caloriesConsumed)}',
+                style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFFE8F5E9),
+                  color: Colors.grey.shade800,
                 ),
               ),
               Text(
-                '/ ${caloriesRequired.toInt()} kcal',
-                style: GoogleFonts.manrope(
+                '/ ${_safeDisplayInt(caloriesRequired)} kcal',
+                style: TextStyle(
                   fontSize: 10,
-                  color: Color(0xFFE8F5E9),
+                  color: Colors.grey.shade600,
                 ),
               ),
               const SizedBox(height: 2),
               Text(
                 '${percentage.round()}%',
-                style: GoogleFonts.manrope(
+                style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: percentage >= 100 ? Colors.red : Colors.greenAccent,
+                  color: percentage >= 100
+                      ? Colors.red.shade600
+                      : Colors.green.shade600,
                 ),
               ),
               if (remaining > 0)
                 Text(
-                  '${remaining.toInt()} left',
-                  style: GoogleFonts.manrope(
+                  '${_safeDisplayInt(remaining)} left',
+                  style: TextStyle(
                     fontSize: 8,
-                    color: Color(0xFFE8F5E9),
+                    color: Colors.grey.shade500,
                   ),
                 ),
             ],
@@ -3040,18 +3274,22 @@ Your response:''';
 
   Widget _buildNutrientProgressCard(
       String label, double current, double daily, String unit, String emoji) {
-    final percentage = (current / daily * 100).clamp(0.0, 100.0);
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final safeCurrent = _safeDisplayDouble(current);
+    final safeDaily = _safeDisplayDouble(daily);
+    final percentage = _safePercentage(safeCurrent, safeDaily);
     final isOverGoal = percentage >= 100;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.sm),
+      padding: const EdgeInsets.all(8.0),
       decoration: BoxDecoration(
-        color: Color(0xFF0E2E20),
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.grey.withOpacity(0.1),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -3071,15 +3309,14 @@ Your response:''';
                       style: const TextStyle(fontSize: 12),
                     ),
                     const SizedBox(width: 6),
-                    Flexible(
+                    Expanded(
                       child: Text(
                         label,
-                        style: GoogleFonts.manrope(
+                        style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFFE8F5E9),
+                          color: colorScheme.onSurface,
                         ),
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
@@ -3089,16 +3326,16 @@ Your response:''';
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: isOverGoal
-                      ? Colors.red.withOpacity(0.1)
-                      : Colors.greenAccent.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                      ? Colors.red.withValues(alpha: 0.1)
+                      : AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  '${percentage.toInt()}%',
-                  style: GoogleFonts.manrope(
+                  '${_safeDisplayInt(percentage)}%',
+                  style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
-                    color: isOverGoal ? Colors.red : Colors.greenAccent,
+                    color: isOverGoal ? Colors.red : AppColors.primary,
                   ),
                 ),
               ),
@@ -3110,7 +3347,7 @@ Your response:''';
           Container(
             height: 8,
             decoration: BoxDecoration(
-              color: const Color(0xFFE5E7EB),
+              color: colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: Colors.grey.withOpacity(0.2),
@@ -3130,10 +3367,7 @@ Your response:''';
                         gradient: LinearGradient(
                           colors: isOverGoal
                               ? [Colors.red.shade400, Colors.red.shade600]
-                              : [
-                                  const Color(0xFF10B981),
-                                  const Color(0xFF059669)
-                                ],
+                              : [AppColors.primaryLight, AppColors.primary],
                           begin: Alignment.centerLeft,
                           end: Alignment.centerRight,
                         ),
@@ -3150,19 +3384,19 @@ Your response:''';
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '${current.toStringAsFixed(current < 10 ? 1 : 0)}$unit',
+                '${_safeFixed(safeCurrent, safeCurrent < 10 ? 1 : 0)}$unit',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: isOverGoal ? Colors.red : const Color(0xFF374151),
+                  color: isOverGoal ? Colors.red : colorScheme.onSurface,
                 ),
               ),
               Text(
-                'Goal: ${daily.toStringAsFixed(0)}$unit',
-                style: const TextStyle(
+                'Goal: ${_safeFixed(safeDaily, 0)}$unit',
+                style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
-                  color: Color(0xFF6B7280),
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
@@ -3236,57 +3470,59 @@ Your response:''';
       print('=== DEBUG: Food name: $foodName ===');
       print('=== DEBUG: Calories from nutrients: ${nutrients['calories']} ===');
 
+      int nutrientRounded(String key) => _safeDisplayInt(nutrients[key]);
+
       // Create food info string similar to camera output with detailed fat breakdown
       final foodInfo = '''FOOD_NAME: $foodName
-CALORIES: ${nutrients['calories']?.round()} kcal
-PROTEIN: ${nutrients['protein']?.round()} g
-CARBOHYDRATES: ${nutrients['carbohydrates']?.round()} g
-FAT: ${nutrients['fat']?.round()} g
-FIBER: ${nutrients['fiber']?.round()} g
-SODIUM: ${nutrients['sodium']?.round()} mg
-ADDED SUGAR: ${nutrients['addedSugar']?.round()} g
-TRANS FAT: ${nutrients['transFat']?.round()} g
-SATURATED FAT: ${nutrients['saturatedFat']?.round()} g
-REFINED CARBS: ${nutrients['refinedCarbs']?.round()} g
-CHOLESTEROL: ${nutrients['cholesterol']?.round()} mg
+CALORIES: ${nutrientRounded('calories')} kcal
+PROTEIN: ${nutrientRounded('protein')} g
+CARBOHYDRATES: ${nutrientRounded('carbohydrates')} g
+FAT: ${nutrientRounded('fat')} g
+FIBER: ${nutrientRounded('fiber')} g
+SODIUM: ${nutrientRounded('sodium')} mg
+ADDED SUGAR: ${nutrientRounded('addedSugar')} g
+TRANS FAT: ${nutrientRounded('transFat')} g
+SATURATED FAT: ${nutrientRounded('saturatedFat')} g
+REFINED CARBS: ${nutrientRounded('refinedCarbs')} g
+CHOLESTEROL: ${nutrientRounded('cholesterol')} mg
 
 // Fiber Breakdown
-TOTAL FIBER: ${nutrients['totalFiber']?.round()} g
-SOLUBLE FIBER: ${nutrients['solubleFiber']?.round()} g
-INSOLUBLE FIBER: ${nutrients['insolubleFiber']?.round()} g
-PREBIOTIC FIBER: ${nutrients['prebioticFiber']?.round()} g
+TOTAL FIBER: ${nutrientRounded('totalFiber')} g
+SOLUBLE FIBER: ${nutrientRounded('solubleFiber')} g
+INSOLUBLE FIBER: ${nutrientRounded('insolubleFiber')} g
+PREBIOTIC FIBER: ${nutrientRounded('prebioticFiber')} g
 
 // Fat Breakdown
-MONOUNSATURATED FAT: ${nutrients['monounsaturatedFat']?.round()} g
-OMEGA-3: ${nutrients['omega3']?.round()} g
-OMEGA-6: ${nutrients['omega6']?.round()} g
+MONOUNSATURATED FAT: ${nutrientRounded('monounsaturatedFat')} g
+OMEGA-3: ${nutrientRounded('omega3')} g
+OMEGA-6: ${nutrientRounded('omega6')} g
 
 // Vitamins (Complete Set)
-VITAMIN A: ${nutrients['vitaminA']?.round()} mcg
-VITAMIN C: ${nutrients['vitaminC']?.round()} mg
-VITAMIN D: ${nutrients['vitaminD']?.round()} mcg
-VITAMIN E: ${nutrients['vitaminE']?.round()} mg
-VITAMIN K: ${nutrients['vitaminK']?.round()} mcg
-VITAMIN B1: ${nutrients['vitaminB1']?.round()} mg
-VITAMIN B2: ${nutrients['vitaminB2']?.round()} mg
-VITAMIN B3: ${nutrients['vitaminB3']?.round()} mg
-VITAMIN B5: ${nutrients['vitaminB5']?.round()} mg
-VITAMIN B6: ${nutrients['vitaminB6']?.round()} mg
-VITAMIN B7: ${nutrients['vitaminB7']?.round()} mcg
-VITAMIN B9: ${nutrients['vitaminB9']?.round()} mcg
-VITAMIN B12: ${nutrients['vitaminB12']?.round()} mcg
-FOLATE: ${nutrients['folate']?.round()} mcg
+VITAMIN A: ${nutrientRounded('vitaminA')} mcg
+VITAMIN C: ${nutrientRounded('vitaminC')} mg
+VITAMIN D: ${nutrientRounded('vitaminD')} mcg
+VITAMIN E: ${nutrientRounded('vitaminE')} mg
+VITAMIN K: ${nutrientRounded('vitaminK')} mcg
+VITAMIN B1: ${nutrientRounded('vitaminB1')} mg
+VITAMIN B2: ${nutrientRounded('vitaminB2')} mg
+VITAMIN B3: ${nutrientRounded('vitaminB3')} mg
+VITAMIN B5: ${nutrientRounded('vitaminB5')} mg
+VITAMIN B6: ${nutrientRounded('vitaminB6')} mg
+VITAMIN B7: ${nutrientRounded('vitaminB7')} mcg
+VITAMIN B9: ${nutrientRounded('vitaminB9')} mcg
+VITAMIN B12: ${nutrientRounded('vitaminB12')} mcg
+FOLATE: ${nutrientRounded('folate')} mcg
 
 // Minerals (Complete Set)
-CALCIUM: ${nutrients['calcium']?.round()} mg
-IRON: ${nutrients['iron']?.round()} mg
-POTASSIUM: ${nutrients['potassium']?.round()} mg
-MAGNESIUM: ${nutrients['magnesium']?.round()} mg
-ZINC: ${nutrients['zinc']?.round()} mg
-PHOSPHORUS: ${nutrients['phosphorus']?.round()} mg
-COPPER: ${nutrients['copper']?.round()} mg
-MANGANESE: ${nutrients['manganese']?.round()} mg
-SELENIUM: ${nutrients['selenium']?.round()} mcg''';
+CALCIUM: ${nutrientRounded('calcium')} mg
+IRON: ${nutrientRounded('iron')} mg
+POTASSIUM: ${nutrientRounded('potassium')} mg
+MAGNESIUM: ${nutrientRounded('magnesium')} mg
+ZINC: ${nutrientRounded('zinc')} mg
+PHOSPHORUS: ${nutrientRounded('phosphorus')} mg
+COPPER: ${nutrientRounded('copper')} mg
+MANGANESE: ${nutrientRounded('manganese')} mg
+SELENIUM: ${nutrientRounded('selenium')} mcg''';
 
       setState(() {
         _scannedFoods.add(foodInfo);
@@ -3311,7 +3547,7 @@ SELENIUM: ${nutrients['selenium']?.round()} mcg''';
               ),
             ],
           ),
-          backgroundColor: AppColors.success,
+          backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ),
       );
@@ -3431,64 +3667,83 @@ SELENIUM: ${nutrients['selenium']?.round()} mcg''';
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = GoogleFonts.manropeTextTheme(theme.textTheme);
+
     // Calculate target values and related variables
     final targets = _calculateTargetValues();
     final weightGoal = targets['weightGoal'] ?? 'Maintain Weight';
     final currentBMI = targets['currentBMI'] ?? 0.0;
 
     // Determine goal color and change verb/icon based on BMI
-    Color goalColor = AppColors.info;
+    Color goalColor = Colors.blue;
     String changeVerb = 'change';
     String changeIcon = '🔄';
     String calorieType = 'adjustment';
 
     if (currentBMI > 24.9) {
-      goalColor = AppColors.warning;
+      goalColor = Colors.orange;
       changeVerb = 'lose';
       changeIcon = '📉';
       calorieType = 'deficit';
     } else if (currentBMI < 18.5) {
-      goalColor = AppColors.success;
+      goalColor = Colors.green;
       changeVerb = 'gain';
       changeIcon = '📈';
       calorieType = 'surplus';
     }
 
-    // Calculate weight change potential based on BMI
-    final baseCalories = targets['baseCalories'] ?? 2000.0;
-    final targetCalories = targets['targetCalories'] ?? 2000.0;
+    // Calculate weight change potential based on BMI and BMR vs target calories
+    final baseCalories =
+        _safeDisplayDouble(targets['baseCalories'], fallback: 2000.0);
+    final targetCalories =
+        _safeDisplayDouble(targets['targetCalories'], fallback: 2000.0);
+    final bmr = _safeDisplayDouble(widget.profile.bmr);
+
+    // Use actual calculated weight change from target values
+    final actualWeeklyChange =
+        _safeDisplayDouble(targets['actualWeeklyChange']);
+    final dailyCalorieDeficit =
+        _safeDisplayDouble(targets['dailyCalorieDeficit']);
+    final tdee = _safeDisplayDouble(targets['tdee']);
+    final weeksToGoal = _safeDisplayDouble(targets['weeksToGoal']);
 
     final weightChangePotential = {
-      'safeWeeklyChange':
-          currentBMI > 24.9 ? 0.75 : (currentBMI < 18.5 ? 0.5 : 0.0),
-      'safeMonthlyChange':
-          currentBMI > 24.9 ? 3.0 : (currentBMI < 18.5 ? 2.0 : 0.0),
-      'weeksToTarget': (targets['weeksToGoal'] ?? 0).round(),
-      'recommendedCalorieAdjustment': (targetCalories - baseCalories).round(),
-      'targetDate': (targets['weeksToGoal'] ?? 0) > 0
-          ? DateTime.now()
-              .add(Duration(days: ((targets['weeksToGoal'] ?? 0) * 7).round()))
+      'actualWeeklyChange': actualWeeklyChange,
+      'actualMonthlyChange':
+          actualWeeklyChange * 4.33, // Average weeks per month
+      'dailyCalorieDeficit': dailyCalorieDeficit,
+      'tdee': tdee,
+      'weeksToTarget': weeksToGoal.isFinite && weeksToGoal > 0
+          ? _safeDisplayInt(weeksToGoal)
+          : 0,
+      'recommendedCalorieAdjustment':
+          _safeDisplayInt(targetCalories - baseCalories),
+      'targetDate': weeksToGoal.isFinite && weeksToGoal > 0
+          ? DateTime.now().add(Duration(days: _safeDisplayInt(weeksToGoal * 7)))
           : null,
     };
 
+    // Show activity level dialog only on nutrition tracker page, not from edit profile
+    if (targets['targetCaloriesAdjusted'] == true &&
+        ModalRoute.of(context)?.isFirst == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showActivityLevelDialog();
+      });
+    }
+
     return Scaffold(
-      backgroundColor: Color(0xFF0A1A12),
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: Text(
           'Nutrition Tracker',
-          style: GoogleFonts.manrope(
-            fontWeight: FontWeight.w600,
-            fontSize: 20,
-            color: Color(0xFFE8F5E9),
-          ),
+          style: textTheme.titleLarge,
         ),
         centerTitle: true,
-        backgroundColor: Color(0xFF0E2E20),
-        foregroundColor: Color(0xFFE8F5E9),
-        elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.edit),
+            icon: const Icon(Icons.edit, color: AppColors.primary),
             onPressed: () {
               Navigator.push(
                 context,
@@ -3501,6 +3756,11 @@ SELENIUM: ${nutrients['selenium']?.round()} mcg''';
                           'HomeScreen: Profile updated from ${widget.profile.weight}kg to ${updatedProfile.weight}kg');
                       print(
                           'Health conditions updated: ${widget.profile.healthConditions} -> ${updatedProfile.healthConditions}');
+
+                      // Check if activity level changed and BMR > target calories
+                      _checkActivityLevelAndBMRCalories(
+                          widget.profile, updatedProfile);
+
                       // Update profile in parent widget first to trigger widget rebuild
                       if (widget.onProfileUpdated != null) {
                         widget.onProfileUpdated!(updatedProfile);
@@ -3512,19 +3772,16 @@ SELENIUM: ${nutrients['selenium']?.round()} mcg''';
                         SnackBar(
                           content: Row(
                             children: [
-                              const Icon(Icons.check_circle,
-                                  color: Colors.white),
-                              const SizedBox(width: 8),
+                              Icon(Icons.check_circle, color: Colors.white),
+                              SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  'Profile updated successfully! Nutrient requirements recalculated.',
-                                  style: GoogleFonts.manrope(),
-                                ),
+                                    'Profile updated successfully! Nutrient requirements recalculated.'),
                               ),
                             ],
                           ),
-                          backgroundColor: AppColors.success,
-                          duration: const Duration(seconds: 3),
+                          backgroundColor: Colors.green,
+                          duration: Duration(seconds: 3),
                         ),
                       );
                     },
@@ -3536,1062 +3793,1100 @@ SELENIUM: ${nutrients['selenium']?.round()} mcg''';
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        controller: _scrollController,
-        child: Column(
-          children: [
-            // Weight Update Reminder Block - Only show when visible
-            if (_showWeightUpdateBlock)
+      body: Theme(
+        data: theme.copyWith(textTheme: textTheme),
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          child: Column(
+            children: [
+              // Weight Update Reminder Block - Only show when visible
+              if (_showWeightUpdateBlock)
+                Container(
+                  margin: const EdgeInsets.all(16.0),
+                  padding: const EdgeInsets.all(16.0),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange.shade200, width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.orange.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.warning_amber,
+                              color: Colors.orange.shade700, size: 24),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Weight Update Required!',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange.shade900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12.0),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange.shade100),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline,
+                                color: Colors.orange.shade600, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'It\'s been 15 days! Time to update your weight for accurate nutrition tracking.',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.orange.shade800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) => WeightUpdateDialog(
+                                currentProfile: widget.profile,
+                                onWeightUpdated: (updatedProfile) {
+                                  // Check if activity level changed and BMR > target calories
+                                  _checkActivityLevelAndBMRCalories(
+                                      widget.profile, updatedProfile);
+
+                                  if (widget.onProfileUpdated != null) {
+                                    widget.onProfileUpdated!(updatedProfile);
+                                  }
+                                  // Hide block and save weight update time
+                                  _hideWeightUpdateBlock();
+                                },
+                              ),
+                            );
+                          },
+                          icon: Icon(Icons.monitor_weight, size: 20),
+                          label: Text('Update Weight Now',
+                              style: TextStyle(fontSize: 16)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange.shade600,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Daily Nutrient Requirements Card
               Container(
-                margin: const EdgeInsets.all(AppSpacing.lg),
-                padding: const EdgeInsets.all(AppSpacing.lg),
+                width: double.infinity,
+                margin: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(16.0),
                 decoration: BoxDecoration(
-                  color: AppColors.warning.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  color: colorScheme.primaryContainer.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                      color: AppColors.warning.withOpacity(0.3), width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.warning.withOpacity(0.1),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                      color: AppColors.primary.withValues(alpha: 0.25)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.warning_amber,
-                            color: AppColors.warning, size: 24),
-                        const SizedBox(width: AppSpacing.sm),
+                        Icon(Icons.person_outline, color: Colors.blue.shade700),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Weight Update Required!',
-                            style: GoogleFonts.manrope(
+                            'Your Daily Nutrient Requirements',
+                            style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
-                              color: AppColors.warning,
+                              color: colorScheme.onSurface,
                             ),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    Container(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                        border: Border.all(
-                            color: AppColors.warning.withOpacity(0.2)),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline,
-                              color: AppColors.warning, size: 20),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              'It\'s been 15 days! Time to update your weight for accurate nutrition tracking.',
-                              style: GoogleFonts.manrope(
-                                fontSize: 14,
-                                color: AppColors.textPrimaryLight,
-                              ),
+                    const Divider(height: 20),
+                    // Add Change Activity button if initial target calories were less than BMR
+                    if (targets['targetCaloriesAdjusted'] == true)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        child: ElevatedButton(
+                          onPressed: () => _showActivityLevelDialog(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange.shade600,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
                             ),
                           ),
-                        ],
+                          child: const Text(
+                            'Change Activity Level',
+                            style: TextStyle(
+                                fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) => WeightUpdateDialog(
-                              currentProfile: widget.profile,
-                              onWeightUpdated: (updatedProfile) {
-                                if (widget.onProfileUpdated != null) {
-                                  widget.onProfileUpdated!(updatedProfile);
-                                }
-                                // Hide block and save weight update time
-                                _hideWeightUpdateBlock();
-                              },
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.monitor_weight, size: 20),
-                        label: Text(
-                          'Update Weight Now',
-                          style: GoogleFonts.manrope(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.warning,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                              vertical: AppSpacing.md),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.sm),
-                          ),
-                          elevation: AppElevation.sm,
-                        ),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Text(
+                        '🔥 Target Calories: ${_safeDisplayInt(targetCalories)} kcal\n'
+                        '🥩 Protein: ${_safeDisplayInt(widget.profile.dailyNutrientRequirements['protein'])}g\n'
+                        '🍞 Carbs: ${_safeDisplayInt(widget.profile.dailyNutrientRequirements['carbohydrates'])}g\n'
+                        '🥑 Fat: ${_safeDisplayInt(widget.profile.dailyNutrientRequirements['fat'])}g\n'
+                        '🌾 Fiber: ${_safeDisplayInt(widget.profile.dailyNutrientRequirements['fiber'])}g\n'
+                        '💧 Water: ${_safeDisplayInt(_safeDisplayDouble(widget.profile.dailyNutrientRequirements['water']) * 1000)}ml',
+                        style: const TextStyle(fontSize: 15, height: 1.5),
                       ),
                     ),
                   ],
                 ),
               ),
 
-            // Daily Nutrient Requirements Card
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(AppSpacing.lg),
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(color: AppColors.primary.withOpacity(0.2)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.person_outline, color: AppColors.primary),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Text(
-                          'Your Daily Nutrient Requirements',
-                          style: GoogleFonts.manrope(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 20),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Text(
-                      '🔥 Target Calories: ${targetCalories.round()} kcal\n'
-                      '🥩 Protein: ${widget.profile.dailyNutrientRequirements['protein']?.round()}g\n'
-                      '🍞 Carbs: ${widget.profile.dailyNutrientRequirements['carbohydrates']?.round()}g\n'
-                      '🥑 Fat: ${widget.profile.dailyNutrientRequirements['fat']?.round()}g\n'
-                      '🌾 Fiber: ${widget.profile.dailyNutrientRequirements['fiber']?.round()}g\n'
-                      '💧 Water: ${(widget.profile.dailyNutrientRequirements['water']! * 1000).round()}ml',
-                      style: const TextStyle(fontSize: 15, height: 1.5),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // BMI-Based Target Values Card
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(16.0),
-              padding: const EdgeInsets.all(16.0),
-              decoration: BoxDecoration(
-                color: Color(0xFF0E2E20),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.greenAccent.withOpacity(0.3)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.trending_up, color: Colors.greenAccent),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Your BMI-Based Targets',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFFE8F5E9),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Icon(Icons.monitor_weight,
-                          color: Colors.greenAccent, size: 16),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Goal: $weightGoal',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.greenAccent,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '📊 Current BMI: ${targets['currentBMI']?.toStringAsFixed(1)}\n'
-                        '🎯 Target BMI: ${targets['targetBMI']?.toStringAsFixed(1)}\n'
-                        '⚖️ Current Weight: ${targets['currentWeight']?.round()} kg\n'
-                        '🏆 Target Weight: ${targets['targetWeight']?.round()} kg\n'
-                        '📈 Weight to $changeVerb: ${targets['weightDifference']?.abs()?.round()} kg\n'
-                        '⏱️ Original Est. Time: ${targets['weeksToGoal']?.round()} weeks\n'
-                        '$changeIcon Safe Weekly $changeVerb: ${weightChangePotential['safeWeeklyChange']?.toStringAsFixed(1)} kg\n'
-                        '📅 Safe Monthly $changeVerb: ${weightChangePotential['safeMonthlyChange']?.toStringAsFixed(1)} kg\n'
-                        '🎯 Realistic Time to Target: ${weightChangePotential['weeksToTarget']} weeks\n',
-                        // '📉 Recommended Calorie $calorieType: ${weightChangePotential['recommendedCalorieAdjustment']} kcal/day\n'
-                        // '📅 Target Date: ${_formatTargetDate(weightChangePotential['targetDate'])}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          height: 1.4,
-                          color: Color(0xFFE8F5E9),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Circular Calorie Display (moved here)
-            Container(
-              margin: const EdgeInsets.all(16.0),
-              padding: const EdgeInsets.all(16.0),
-              decoration: BoxDecoration(
-                color: Color(0xFF0E2E20),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-                border: Border.all(
-                    color: Colors.greenAccent.withOpacity(0.3), width: 1),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.local_fire_department,
-                          color: Colors.greenAccent, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        'CALORIE TRACKER',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFFE8F5E9),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  // Circular calorie display
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.greenAccent, width: 3),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.greenAccent.withOpacity(0.2),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Stack(
-                      children: [
-                        Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '${(_totalNutrients['calories'] ?? 0.0).round()}',
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.greenAccent,
-                                ),
-                              ),
-                              Text(
-                                'of ${targetCalories.round()}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFFE8F5E9),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.greenAccent,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Text(
-                              '${((_totalNutrients['calories'] ?? 0.0) / targetCalories * 100).round()}%',
-                              style: TextStyle(
-                                color: Color(0xFF0A1A12),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Food Form Section (conditionally shown)
-            if (_showFoodForm)
+              // BMI-Based Target Values Card
               Container(
-                key: _foodFormKey,
+                width: double.infinity,
                 margin: const EdgeInsets.all(16.0),
                 padding: const EdgeInsets.all(16.0),
                 decoration: BoxDecoration(
-                  color: Color(0xFF0E2E20),
+                  color: colorScheme.secondaryContainer.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: colorScheme.secondary.withValues(alpha: 0.25)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.trending_up, color: Colors.purple.shade700),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Your BMI-Based Targets',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(Icons.monitor_weight, color: goalColor, size: 16),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Goal: $weightGoal',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: goalColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '📊 Current BMI: ${_safeFixed(targets['currentBMI'], 1)}\n'
+                          '🎯 Target BMI: ${_safeFixed(targets['targetBMI'], 1)}\n'
+                          '⚡ Daily BMR: ${_safeDisplayInt(widget.profile.bmr)} kcal\n'
+                          '⚖️ Current Weight: ${_safeDisplayInt(targets['currentWeight'])} kg\n'
+                          '🏆 Target Weight: ${_safeDisplayInt(targets['targetWeight'])} kg\n'
+                          '📈 Weight to $changeVerb: ${_safeDisplayInt(_safeDisplayDouble(targets['weightDifference']).abs())} kg\n'
+                          '⏱️ Est. Time to Target: ${weightChangePotential['weeksToTarget']} weeks\n'
+                          '$changeIcon Weekly $changeVerb: ${_safeFixed(weightChangePotential['actualWeeklyChange'], 2)} kg\n'
+                          '📅 Monthly $changeVerb: ${_safeFixed(weightChangePotential['actualMonthlyChange'], 2)} kg\n'
+                          '🔥 Daily Calorie ${dailyCalorieDeficit > 0 ? "Deficit" : "Surplus"}: ${_safeDisplayInt(dailyCalorieDeficit.abs())} kcal\n'
+                          '⚡ TDEE: ${_safeDisplayInt(tdee)} kcal\n'
+                          '🎯 Based on Target Calories: ${_safeDisplayInt(targetCalories)} kcal\n',
+                          // '📉 Recommended Calorie $calorieType: ${weightChangePotential['recommendedCalorieAdjustment']} kcal/day\n'
+                          // '📅 Target Date: ${_formatTargetDate(weightChangePotential['targetDate'])}',
+                          style: const TextStyle(fontSize: 14, height: 1.4),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Circular Calorie Display (moved here)
+              Container(
+                margin: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(16.0),
+                decoration: BoxDecoration(
+                  color: colorScheme.surface,
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.greenAccent.withOpacity(0.1),
+                      color: Colors.grey.withOpacity(0.1),
                       blurRadius: 6,
                       offset: const Offset(0, 2),
                     ),
                   ],
                   border: Border.all(
-                      color: Colors.greenAccent.withOpacity(0.3), width: 1),
+                      color: AppColors.primary.withValues(alpha: 0.25),
+                      width: 1),
                 ),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.restaurant_menu,
-                              color: Colors.greenAccent, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            'ADD CUSTOM FOOD',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFFE8F5E9),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Manual Entry Section
-                      Text(
-                        'Or enter manually:',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFFE8F5E9),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _foodNameController,
-                        decoration: InputDecoration(
-                          labelText: 'Food Name',
-                          hintText:
-                              'e.g., Apple, Chicken Breast, Rice (AI will find nutrition)',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.restaurant),
-                          suffixIcon: _isSearching
-                              ? Padding(
-                                  padding: EdgeInsets.all(12),
-                                  child: SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2),
-                                  ),
-                                )
-                              : null,
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Please enter food name';
-                          }
-                          return null;
-                        },
-                        onChanged: (value) {
-                          // Clear search results when user types
-                          if (_searchResults.isNotEmpty) {
-                            setState(() {
-                              _searchResults.clear();
-                            });
-                          }
-                        },
-                        onFieldSubmitted: (value) {
-                          if (value.trim().isNotEmpty) {
-                            _searchAndFillFood(value.trim());
-                          }
-                        },
-                      ),
-                      if (_searchResults.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Color(0xFF0E2E20),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                                color: Colors.greenAccent.withOpacity(0.3)),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.greenAccent.withOpacity(0.1),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: Color(0xFF0E2E20),
-                                  borderRadius: const BorderRadius.only(
-                                    topLeft: Radius.circular(8),
-                                    topRight: Radius.circular(8),
-                                  ),
-                                  border: Border.all(
-                                      color:
-                                          Colors.greenAccent.withOpacity(0.3)),
-                                ),
-                                child: Text(
-                                  '🤖 AI Suggestions (tap to select)',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFFE8F5E9),
-                                  ),
-                                ),
-                              ),
-                              ..._searchResults.asMap().entries.map((entry) {
-                                final index = entry.key;
-                                final foodItem = entry.value;
-                                return InkWell(
-                                  onTap: () => _selectFoodItem(foodItem),
-                                  child: Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 12, vertical: 10),
-                                    decoration: BoxDecoration(
-                                      border: Border(
-                                        bottom: BorderSide(
-                                          color:
-                                              index < _searchResults.length - 1
-                                                  ? Colors.greenAccent
-                                                      .withOpacity(0.2)
-                                                  : Colors.transparent,
-                                          width: 1,
-                                        ),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                foodItem.name,
-                                                style: const TextStyle(
-                                                  fontSize: 13,
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                '${foodItem.calories.round()} kcal | ${foodItem.protein.round()}g protein | ${foodItem.carbohydrates.round()}g carbs',
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: Color(0xFFE8F5E9),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        Icon(Icons.add_circle,
-                                            color: Colors.greenAccent,
-                                            size: 20),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              }),
-                            ],
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.local_fire_department,
+                            color: Colors.green.shade700, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'CALORIE TRACKER',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ],
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _quantityController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Quantity',
-                          hintText: '100',
-                          suffixText: 'grams',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.scale),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter quantity';
-                          }
-                          if (double.tryParse(value) == null ||
-                              double.tryParse(value)! <= 0) {
-                            return 'Please enter a valid quantity';
-                          }
-                          return null;
-                        },
+                    ),
+                    const SizedBox(height: 12),
+                    // Circular calorie display
+                    Container(
+                      width: 120,
+                      height: 120,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border:
+                            Border.all(color: Colors.green.shade300, width: 3),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.green.withOpacity(0.2),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        '📊 Nutrients will be fetched automatically from our database',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFFE8F5E9),
-                          fontStyle: FontStyle.italic,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
+                      child: Stack(
                         children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: _clearFoodForm,
-                              style: OutlinedButton.styleFrom(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                          Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  '${_safeDisplayInt(_totalNutrients['calories'])}',
+                                  style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green.shade700,
+                                  ),
                                 ),
-                              ),
-                              child: const Text('Clear'),
+                                Text(
+                                  'of ${_safeDisplayInt(targetCalories)}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.green.shade600,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: _isLoading ? null : _saveCustomFood,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange,
-                                foregroundColor: Colors.white,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade700,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                '${_safeDisplayInt(_safePercentage(_safeDisplayDouble(_totalNutrients['calories']), targetCalories))}%',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
                                 ),
                               ),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Text('Fetch & Add Food'),
                             ),
                           ),
                         ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
 
-            // Macronutrients Progress Section
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(8.0),
-              padding: const EdgeInsets.all(8.0),
-              decoration: BoxDecoration(
-                  color: Color(0xFF0E2E20),
-                  borderRadius: BorderRadius.circular(12),
-                  border:
-                      Border.all(color: Colors.greenAccent.withOpacity(0.3))),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Icon(Icons.local_dining,
-                        color: Colors.greenAccent, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                        child: Text('MACRONUTRIENTS PROGRESS',
-                            style: TextStyle(
+              // Food Form Section (conditionally shown)
+              if (_showFoodForm)
+                Container(
+                  key: _foodFormKey,
+                  margin: const EdgeInsets.all(16.0),
+                  padding: const EdgeInsets.all(16.0),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.1),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                    border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.2),
+                        width: 1),
+                  ),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.restaurant_menu,
+                                color: Colors.orange.shade700, size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              'ADD CUSTOM FOOD',
+                              style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFFE8F5E9))))
-                  ]),
-                  const SizedBox(height: 8),
-                  ..._buildNutrientGrid([
-                    _buildNutrientProgressCard(
-                        'Protein',
-                        _totalNutrients['protein'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['protein'] ??
-                            50,
-                        'g',
-                        '🥩'),
-                    _buildNutrientProgressCard(
-                        'Carbohydrates',
-                        _totalNutrients['carbohydrates'] ?? 0.0,
-                        widget.profile
-                                .dailyNutrientRequirements['carbohydrates'] ??
-                            300,
-                        'g',
-                        '🍞'),
-                    _buildNutrientProgressCard(
-                        'Fat',
-                        _totalNutrients['fat'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['fat'] ?? 70,
-                        'g',
-                        '🥑'),
-                    _buildNutrientProgressCard(
-                        'Fiber',
-                        _totalNutrients['fiber'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['fiber'] ?? 30,
-                        'g',
-                        '🌾'),
-                  ]),
-                ],
-              ),
-            ),
+                                color: Colors.orange.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
 
-            // Fiber Breakdown Section
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(8.0),
-              padding: const EdgeInsets.all(8.0),
-              decoration: BoxDecoration(
-                  color: Color(0xFF0E2E20),
-                  borderRadius: BorderRadius.circular(12),
-                  border:
-                      Border.all(color: Colors.greenAccent.withOpacity(0.3))),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Icon(Icons.grain, color: Colors.greenAccent, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                        child: Text('FIBER BREAKDOWN',
-                            style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFE8F5E9))))
-                  ]),
-                  const SizedBox(height: 8),
-                  ..._buildNutrientGrid([
-                    _buildNutrientProgressCard(
-                        'Total Fiber',
-                        _totalNutrients['totalFiber'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['fiber'] ?? 30,
-                        'g',
-                        '🌾'),
-                    _buildNutrientProgressCard(
-                        'Soluble Fiber',
-                        _totalNutrients['solubleFiber'] ?? 0.0,
-                        (widget.profile.dailyNutrientRequirements['fiber'] ??
-                                30) *
-                            0.4,
-                        'g',
-                        '🥦'),
-                    _buildNutrientProgressCard(
-                        'Insoluble Fiber',
-                        _totalNutrients['insolubleFiber'] ?? 0.0,
-                        (widget.profile.dailyNutrientRequirements['fiber'] ??
-                                30) *
-                            0.6,
-                        'g',
-                        '🥬'),
-                  ]),
-                ],
-              ),
-            ),
+                        // Manual Entry Section
+                        Text(
+                          'Or enter manually:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _foodNameController,
+                          decoration: InputDecoration(
+                            labelText: 'Food Name',
+                            hintText:
+                                'e.g., Apple, Chicken Breast, Rice (AI will find nutrition)',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.restaurant),
+                            suffixIcon: _isSearching
+                                ? Padding(
+                                    padding: EdgeInsets.all(12),
+                                    child: SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Please enter food name';
+                            }
+                            return null;
+                          },
+                          onChanged: (value) {
+                            // Clear search results when user types
+                            if (_searchResults.isNotEmpty) {
+                              setState(() {
+                                _searchResults.clear();
+                              });
+                            }
+                          },
+                          onFieldSubmitted: (value) {
+                            if (value.trim().isNotEmpty) {
+                              _searchAndFillFood(value.trim());
+                            }
+                          },
+                        ),
+                        if (_searchResults.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.green.shade300),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withOpacity(0.1),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.shade50,
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(8),
+                                      topRight: Radius.circular(8),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '🤖 AI Suggestions (tap to select)',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.green.shade900,
+                                    ),
+                                  ),
+                                ),
+                                ..._searchResults.asMap().entries.map((entry) {
+                                  final index = entry.key;
+                                  final foodItem = entry.value;
+                                  return InkWell(
+                                    onTap: () => _selectFoodItem(foodItem),
+                                    child: Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        border: Border(
+                                          bottom: BorderSide(
+                                            color: index <
+                                                    _searchResults.length - 1
+                                                ? Colors.grey.shade200
+                                                : Colors.transparent,
+                                            width: 1,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  foodItem.name,
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  '${_safeDisplayInt(foodItem.calories)} kcal | ${_safeDisplayInt(foodItem.protein)}g protein | ${_safeDisplayInt(foodItem.carbohydrates)}g carbs',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: Colors.grey.shade600,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          Icon(Icons.add_circle,
+                                              color: Colors.green.shade600,
+                                              size: 20),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }),
+                              ],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _quantityController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Quantity',
+                            hintText: '100',
+                            suffixText: 'grams',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.scale),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter quantity';
+                            }
+                            if (double.tryParse(value) == null ||
+                                double.tryParse(value)! <= 0) {
+                              return 'Please enter a valid quantity';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          '📊 Nutrients will be fetched automatically from our database',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                            fontStyle: FontStyle.italic,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: _clearFoodForm,
+                                style: OutlinedButton.styleFrom(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                child: const Text('Clear'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: _isLoading ? null : _saveCustomFood,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                  foregroundColor: Colors.white,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                child: _isLoading
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Text('Fetch & Add Food'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
 
-            // Fat Breakdown Section
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(8.0),
-              padding: const EdgeInsets.all(8.0),
-              decoration: BoxDecoration(
-                  color: Color(0xFF0E2E20),
-                  borderRadius: BorderRadius.circular(12),
-                  border:
-                      Border.all(color: Colors.greenAccent.withOpacity(0.3))),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Icon(Icons.opacity, color: Colors.greenAccent, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                        child: Text('FAT BREAKDOWN',
-                            style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFE8F5E9))))
-                  ]),
-                  const SizedBox(height: 8),
-                  ..._buildNutrientGrid([
-                    _buildNutrientProgressCard(
-                        'Monounsaturated Fat',
-                        _totalNutrients['monounsaturatedFat'] ?? 0.0,
-                        (widget.profile.dailyNutrientRequirements['fat'] ??
-                                70) *
-                            0.4,
-                        'g',
-                        '🫒'),
-                    _buildNutrientProgressCard('Omega-3',
-                        _totalNutrients['omega3'] ?? 0.0, 2.0, 'g', '🐟'),
-                    _buildNutrientProgressCard('Omega-6',
-                        _totalNutrients['omega6'] ?? 0.0, 10.0, 'g', '🌻'),
-                    _buildNutrientProgressCard(
-                        'Saturated Fat',
-                        _totalNutrients['saturatedFat'] ?? 0.0,
-                        (widget.profile.dailyNutrientRequirements['fat'] ??
-                                70) *
-                            0.3,
-                        'g',
-                        '🥓'),
-                    _buildNutrientProgressCard('Trans Fat',
-                        _totalNutrients['transFat'] ?? 0.0, 2.0, 'g', '⚠️'),
-                  ]),
-                ],
+              // Macronutrients Progress Section
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.all(8.0),
+                padding: const EdgeInsets.all(8.0),
+                decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.2))),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.local_dining, color: Colors.green.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: Text('MACRONUTRIENTS PROGRESS',
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green.shade900)))
+                    ]),
+                    const SizedBox(height: 8),
+                    ..._buildNutrientGrid([
+                      _buildNutrientProgressCard(
+                          'Protein',
+                          _totalNutrients['protein'] ?? 0.0,
+                          widget.profile.dailyNutrientRequirements['protein'] ??
+                              50,
+                          'g',
+                          '🥩'),
+                      _buildNutrientProgressCard(
+                          'Carbohydrates',
+                          _totalNutrients['carbohydrates'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['carbohydrates'] ??
+                              300,
+                          'g',
+                          '🍞'),
+                      _buildNutrientProgressCard(
+                          'Fat',
+                          _totalNutrients['fat'] ?? 0.0,
+                          widget.profile.dailyNutrientRequirements['fat'] ?? 70,
+                          'g',
+                          '🥑'),
+                      _buildNutrientProgressCard(
+                          'Fiber',
+                          _totalNutrients['fiber'] ?? 0.0,
+                          widget.profile.dailyNutrientRequirements['fiber'] ??
+                              30,
+                          'g',
+                          '🌾'),
+                    ]),
+                  ],
+                ),
               ),
-            ),
 
-            // Vitamins Progress Section
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(8.0),
-              padding: const EdgeInsets.all(8.0),
-              decoration: BoxDecoration(
-                  color: Color(0xFF0E2E20),
-                  borderRadius: BorderRadius.circular(12),
-                  border:
-                      Border.all(color: Colors.greenAccent.withOpacity(0.3))),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Icon(Icons.medication, color: Colors.greenAccent, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                        child: Text('VITAMINS PROGRESS',
-                            style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFE8F5E9))))
-                  ]),
-                  const SizedBox(height: 8),
-                  ..._buildNutrientGrid([
-                    _buildNutrientProgressCard(
-                        'Vitamin A',
-                        _totalNutrients['vitaminA'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['vitaminA'] ??
-                            900,
-                        'mcg',
-                        '🥕'),
-                    _buildNutrientProgressCard(
-                        'Vitamin C',
-                        _totalNutrients['vitaminC'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['vitaminC'] ??
-                            90,
-                        'mg',
-                        '🍊'),
-                    _buildNutrientProgressCard(
-                        'Vitamin D',
-                        _totalNutrients['vitaminD'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['vitaminD'] ??
-                            20,
-                        'mcg',
-                        '☀️'),
-                    _buildNutrientProgressCard(
-                        'Vitamin E',
-                        _totalNutrients['vitaminE'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['vitaminE'] ??
-                            15,
-                        'mg',
-                        '🌰'),
-                    _buildNutrientProgressCard(
-                        'Vitamin K',
-                        _totalNutrients['vitaminK'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['vitaminK'] ??
-                            120,
-                        'mcg',
-                        '🥬'),
-                    _buildNutrientProgressCard(
-                        'Vitamin B1',
-                        _totalNutrients['vitaminB1'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['vitaminB1'] ??
-                            1.2,
-                        'mg',
-                        '🌾'),
-                    _buildNutrientProgressCard(
-                        'Vitamin B2',
-                        _totalNutrients['vitaminB2'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['vitaminB2'] ??
-                            1.3,
-                        'mg',
-                        '🥛'),
-                    _buildNutrientProgressCard(
-                        'Vitamin B3',
-                        _totalNutrients['vitaminB3'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['vitaminB3'] ??
-                            16,
-                        'mg',
-                        '🍖'),
-                    _buildNutrientProgressCard(
-                        'Vitamin B5',
-                        _totalNutrients['vitaminB5'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['vitaminB5'] ??
-                            5,
-                        'mg',
-                        '🥚'),
-                    _buildNutrientProgressCard(
-                        'Vitamin B6',
-                        _totalNutrients['vitaminB6'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['vitaminB6'] ??
-                            1.3,
-                        'mg',
-                        '🐟'),
-                    _buildNutrientProgressCard(
-                        'Vitamin B7',
-                        _totalNutrients['vitaminB7'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['vitaminB7'] ??
-                            30,
-                        'mcg',
-                        '🥜'),
-                    _buildNutrientProgressCard(
-                        'Vitamin B9',
-                        _totalNutrients['vitaminB9'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['vitaminB9'] ??
-                            400,
-                        'mcg',
-                        '🥬'),
-                    _buildNutrientProgressCard(
-                        'Folate',
-                        _totalNutrients['folate'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['folate'] ??
-                            400,
-                        'mcg',
-                        '🥬'),
-                    _buildNutrientProgressCard(
-                        'Vitamin B12',
-                        _totalNutrients['vitaminB12'] ?? 0.0,
-                        widget.profile
-                                .dailyNutrientRequirements['vitaminB12'] ??
-                            2.4,
-                        'mcg',
-                        '💊'),
-                  ]),
-                ],
+              // Fiber Breakdown Section
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.all(8.0),
+                padding: const EdgeInsets.all(8.0),
+                decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.2))),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.grain, color: Colors.orange.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: Text('FIBER BREAKDOWN',
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange.shade900)))
+                    ]),
+                    const SizedBox(height: 8),
+                    ..._buildNutrientGrid([
+                      _buildNutrientProgressCard(
+                          'Total Fiber',
+                          _totalNutrients['totalFiber'] ?? 0.0,
+                          widget.profile.dailyNutrientRequirements['fiber'] ??
+                              30,
+                          'g',
+                          '🌾'),
+                      _buildNutrientProgressCard(
+                          'Soluble Fiber',
+                          _totalNutrients['solubleFiber'] ?? 0.0,
+                          (widget.profile.dailyNutrientRequirements['fiber'] ??
+                                  30) *
+                              0.4,
+                          'g',
+                          '🥦'),
+                      _buildNutrientProgressCard(
+                          'Insoluble Fiber',
+                          _totalNutrients['insolubleFiber'] ?? 0.0,
+                          (widget.profile.dailyNutrientRequirements['fiber'] ??
+                                  30) *
+                              0.6,
+                          'g',
+                          '🥬'),
+                    ]),
+                  ],
+                ),
               ),
-            ),
 
-            // Minerals Progress Section
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(8.0),
-              padding: const EdgeInsets.all(8.0),
-              decoration: BoxDecoration(
-                  color: Color(0xFF0E2E20),
-                  borderRadius: BorderRadius.circular(12),
-                  border:
-                      Border.all(color: Colors.greenAccent.withOpacity(0.3))),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Icon(Icons.grain, color: Colors.greenAccent, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                        child: Text('MINERALS PROGRESS',
-                            style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFE8F5E9))))
-                  ]),
-                  const SizedBox(height: 8),
-                  ..._buildNutrientGrid([
-                    _buildNutrientProgressCard(
-                        'Sodium',
-                        _totalNutrients['sodium'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['sodium'] ??
-                            2300,
-                        'mg',
-                        '🧂'),
-                    _buildNutrientProgressCard(
-                        'Calcium',
-                        _totalNutrients['calcium'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['calcium'] ??
-                            1000,
-                        'mg',
-                        '🦴'),
-                    _buildNutrientProgressCard(
-                        'Iron',
-                        _totalNutrients['iron'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['iron'] ?? 18,
-                        'mg',
-                        '⚡'),
-                    _buildNutrientProgressCard(
-                        'Potassium',
-                        _totalNutrients['potassium'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['potassium'] ??
-                            3500,
-                        'mg',
-                        '🍌'),
-                    _buildNutrientProgressCard(
-                        'Magnesium',
-                        _totalNutrients['magnesium'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['magnesium'] ??
-                            400,
-                        'mg',
-                        '✨'),
-                    _buildNutrientProgressCard(
-                        'Zinc',
-                        _totalNutrients['zinc'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['zinc'] ?? 11,
-                        'mg',
-                        '🔧'),
-                    _buildNutrientProgressCard(
-                        'Phosphorus',
-                        _totalNutrients['phosphorus'] ?? 0.0,
-                        widget.profile
-                                .dailyNutrientRequirements['phosphorus'] ??
-                            700,
-                        'mg',
-                        '🦴'),
-                    _buildNutrientProgressCard(
-                        'Copper',
-                        _totalNutrients['copper'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['copper'] ??
-                            0.9,
-                        'mg',
-                        '🔧'),
-                    _buildNutrientProgressCard(
-                        'Manganese',
-                        _totalNutrients['manganese'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['manganese'] ??
-                            2.3,
-                        'mg',
-                        '⚡'),
-                    _buildNutrientProgressCard(
-                        'Selenium',
-                        _totalNutrients['selenium'] ?? 0.0,
-                        widget.profile.dailyNutrientRequirements['selenium'] ??
-                            55,
-                        'mcg',
-                        '✨'),
-                  ]),
-                ],
+              // Fat Breakdown Section
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.all(8.0),
+                padding: const EdgeInsets.all(8.0),
+                decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.2))),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.opacity, color: Colors.amber.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: Text('FAT BREAKDOWN',
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.amber.shade900)))
+                    ]),
+                    const SizedBox(height: 8),
+                    ..._buildNutrientGrid([
+                      _buildNutrientProgressCard(
+                          'Monounsaturated Fat',
+                          _totalNutrients['monounsaturatedFat'] ?? 0.0,
+                          (widget.profile.dailyNutrientRequirements['fat'] ??
+                                  70) *
+                              0.4,
+                          'g',
+                          '🫒'),
+                      _buildNutrientProgressCard('Omega-3',
+                          _totalNutrients['omega3'] ?? 0.0, 2.0, 'g', '🐟'),
+                      _buildNutrientProgressCard('Omega-6',
+                          _totalNutrients['omega6'] ?? 0.0, 10.0, 'g', '🌻'),
+                      _buildNutrientProgressCard(
+                          'Saturated Fat',
+                          _totalNutrients['saturatedFat'] ?? 0.0,
+                          (widget.profile.dailyNutrientRequirements['fat'] ??
+                                  70) *
+                              0.3,
+                          'g',
+                          '🥓'),
+                      _buildNutrientProgressCard('Trans Fat',
+                          _totalNutrients['transFat'] ?? 0.0, 2.0, 'g', '⚠️'),
+                    ]),
+                  ],
+                ),
               ),
-            ),
 
-            // Health Limits Monitoring Section
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(8.0),
-              padding: const EdgeInsets.all(16.0),
-              decoration: BoxDecoration(
-                color: Color(0xFF0E2E20),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: Colors.greenAccent.withOpacity(0.3), width: 1),
+              // Vitamins Progress Section
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.all(8.0),
+                padding: const EdgeInsets.all(8.0),
+                decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.2))),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.medication, color: Colors.purple.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: Text('VITAMINS PROGRESS',
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.purple.shade900)))
+                    ]),
+                    const SizedBox(height: 8),
+                    ..._buildNutrientGrid([
+                      _buildNutrientProgressCard(
+                          'Vitamin A',
+                          _totalNutrients['vitaminA'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminA'] ??
+                              900,
+                          'mcg',
+                          '🥕'),
+                      _buildNutrientProgressCard(
+                          'Vitamin C',
+                          _totalNutrients['vitaminC'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminC'] ??
+                              90,
+                          'mg',
+                          '🍊'),
+                      _buildNutrientProgressCard(
+                          'Vitamin D',
+                          _totalNutrients['vitaminD'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminD'] ??
+                              20,
+                          'mcg',
+                          '☀️'),
+                      _buildNutrientProgressCard(
+                          'Vitamin E',
+                          _totalNutrients['vitaminE'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminE'] ??
+                              15,
+                          'mg',
+                          '🌰'),
+                      _buildNutrientProgressCard(
+                          'Vitamin K',
+                          _totalNutrients['vitaminK'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminK'] ??
+                              120,
+                          'mcg',
+                          '🥬'),
+                      _buildNutrientProgressCard(
+                          'Vitamin B1',
+                          _totalNutrients['vitaminB1'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminB1'] ??
+                              1.2,
+                          'mg',
+                          '🌾'),
+                      _buildNutrientProgressCard(
+                          'Vitamin B2',
+                          _totalNutrients['vitaminB2'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminB2'] ??
+                              1.3,
+                          'mg',
+                          '🥛'),
+                      _buildNutrientProgressCard(
+                          'Vitamin B3',
+                          _totalNutrients['vitaminB3'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminB3'] ??
+                              16,
+                          'mg',
+                          '🍖'),
+                      _buildNutrientProgressCard(
+                          'Vitamin B5',
+                          _totalNutrients['vitaminB5'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminB5'] ??
+                              5,
+                          'mg',
+                          '🥚'),
+                      _buildNutrientProgressCard(
+                          'Vitamin B6',
+                          _totalNutrients['vitaminB6'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminB6'] ??
+                              1.3,
+                          'mg',
+                          '🐟'),
+                      _buildNutrientProgressCard(
+                          'Vitamin B7',
+                          _totalNutrients['vitaminB7'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminB7'] ??
+                              30,
+                          'mcg',
+                          '🥜'),
+                      _buildNutrientProgressCard(
+                          'Vitamin B9',
+                          _totalNutrients['vitaminB9'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminB9'] ??
+                              400,
+                          'mcg',
+                          '🥬'),
+                      _buildNutrientProgressCard(
+                          'Folate',
+                          _totalNutrients['folate'] ?? 0.0,
+                          widget.profile.dailyNutrientRequirements['folate'] ??
+                              400,
+                          'mcg',
+                          '🥬'),
+                      _buildNutrientProgressCard(
+                          'Vitamin B12',
+                          _totalNutrients['vitaminB12'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['vitaminB12'] ??
+                              2.4,
+                          'mcg',
+                          '💊'),
+                    ]),
+                  ],
+                ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Icon(Icons.warning, color: Colors.greenAccent, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                        child: Text('HEALTH LIMITS MONITORING',
-                            style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFE8F5E9))))
-                  ]),
-                  const SizedBox(height: 8),
-                  Text('TRY TO KEEP THESE PERCENTAGES LOW',
-                      style: TextStyle(fontSize: 14, color: Color(0xFFE8F5E9))),
-                  const SizedBox(height: 16),
-                  // Debug print to verify UI updates
-                  if (kDebugMode)
-                    Text(
-                        'Debug: Added Sugar=${_totalNutrients['addedSugar']}, Vitamin D=${_totalNutrients['vitaminD']}, Omega-3=${_totalNutrients['omega3']}',
-                        style: TextStyle(fontSize: 10, color: Colors.grey)),
-                  const SizedBox(height: 8),
-                  ..._buildNutrientGrid([
-                    _buildNutrientProgressCard(
-                        'Added Sugar',
-                        _totalNutrients['addedSugar'] ?? 0.0,
-                        _healthLimits['addedSugar'] ?? 30.0,
-                        'g',
-                        '🍰'),
-                    _buildNutrientProgressCard(
-                        'Trans Fat',
-                        _totalNutrients['transFat'] ?? 0.0,
-                        _healthLimits['transFat'] ?? 2.0,
-                        'g',
-                        '⚠️'),
-                    _buildNutrientProgressCard(
-                        'Saturated Fat',
-                        _totalNutrients['saturatedFat'] ?? 0.0,
-                        _healthLimits['saturatedFat'] ?? 20.0,
-                        'g',
-                        '🥓'),
-                    _buildNutrientProgressCard(
-                        'Refined Carbs',
-                        _totalNutrients['refinedCarbs'] ?? 0.0,
-                        _healthLimits['refinedCarbs'] ?? 50.0,
-                        'g',
-                        '🍞'),
-                  ]),
-                ],
+
+              // Minerals Progress Section
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.all(8.0),
+                padding: const EdgeInsets.all(8.0),
+                decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.2))),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.grain, color: Colors.orange.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: Text('MINERALS PROGRESS',
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange.shade900)))
+                    ]),
+                    const SizedBox(height: 8),
+                    ..._buildNutrientGrid([
+                      _buildNutrientProgressCard(
+                          'Sodium',
+                          _totalNutrients['sodium'] ?? 0.0,
+                          widget.profile.dailyNutrientRequirements['sodium'] ??
+                              2300,
+                          'mg',
+                          '🧂'),
+                      _buildNutrientProgressCard(
+                          'Calcium',
+                          _totalNutrients['calcium'] ?? 0.0,
+                          widget.profile.dailyNutrientRequirements['calcium'] ??
+                              1000,
+                          'mg',
+                          '🦴'),
+                      _buildNutrientProgressCard(
+                          'Iron',
+                          _totalNutrients['iron'] ?? 0.0,
+                          widget.profile.dailyNutrientRequirements['iron'] ??
+                              18,
+                          'mg',
+                          '⚡'),
+                      _buildNutrientProgressCard(
+                          'Potassium',
+                          _totalNutrients['potassium'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['potassium'] ??
+                              3500,
+                          'mg',
+                          '🍌'),
+                      _buildNutrientProgressCard(
+                          'Magnesium',
+                          _totalNutrients['magnesium'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['magnesium'] ??
+                              400,
+                          'mg',
+                          '✨'),
+                      _buildNutrientProgressCard(
+                          'Zinc',
+                          _totalNutrients['zinc'] ?? 0.0,
+                          widget.profile.dailyNutrientRequirements['zinc'] ??
+                              11,
+                          'mg',
+                          '🔧'),
+                      _buildNutrientProgressCard(
+                          'Phosphorus',
+                          _totalNutrients['phosphorus'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['phosphorus'] ??
+                              700,
+                          'mg',
+                          '🦴'),
+                      _buildNutrientProgressCard(
+                          'Copper',
+                          _totalNutrients['copper'] ?? 0.0,
+                          widget.profile.dailyNutrientRequirements['copper'] ??
+                              0.9,
+                          'mg',
+                          '🔧'),
+                      _buildNutrientProgressCard(
+                          'Manganese',
+                          _totalNutrients['manganese'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['manganese'] ??
+                              2.3,
+                          'mg',
+                          '⚡'),
+                      _buildNutrientProgressCard(
+                          'Selenium',
+                          _totalNutrients['selenium'] ?? 0.0,
+                          widget.profile
+                                  .dailyNutrientRequirements['selenium'] ??
+                              55,
+                          'mcg',
+                          '✨'),
+                    ]),
+                  ],
+                ),
               ),
-            ),
-          ],
+
+              // Health Limits Monitoring Section
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.all(8.0),
+                padding: const EdgeInsets.all(16.0),
+                decoration: BoxDecoration(
+                  color: colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.2),
+                      width: 1),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.warning, color: Colors.red.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: Text('HEALTH LIMITS MONITORING',
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red.shade900)))
+                    ]),
+                    const SizedBox(height: 8),
+                    Text('TRY TO KEEP THESE PERCENTAGES LOW',
+                        style: TextStyle(
+                            fontSize: 14, color: Colors.red.shade600)),
+                    const SizedBox(height: 16),
+                    // Debug print to verify UI updates
+                    if (kDebugMode)
+                      Text(
+                          'Debug: Added Sugar=${_totalNutrients['addedSugar']}, Vitamin D=${_totalNutrients['vitaminD']}, Omega-3=${_totalNutrients['omega3']}',
+                          style: TextStyle(fontSize: 10, color: Colors.grey)),
+                    const SizedBox(height: 8),
+                    ..._buildNutrientGrid([
+                      _buildNutrientProgressCard(
+                          'Added Sugar',
+                          _totalNutrients['addedSugar'] ?? 0.0,
+                          _healthLimits['addedSugar'] ?? 30.0,
+                          'g',
+                          '🍰'),
+                      _buildNutrientProgressCard(
+                          'Trans Fat',
+                          _totalNutrients['transFat'] ?? 0.0,
+                          _healthLimits['transFat'] ?? 2.0,
+                          'g',
+                          '⚠️'),
+                      _buildNutrientProgressCard(
+                          'Saturated Fat',
+                          _totalNutrients['saturatedFat'] ?? 0.0,
+                          _healthLimits['saturatedFat'] ?? 20.0,
+                          'g',
+                          '🥓'),
+                      _buildNutrientProgressCard(
+                          'Refined Carbs',
+                          _totalNutrients['refinedCarbs'] ?? 0.0,
+                          _healthLimits['refinedCarbs'] ?? 50.0,
+                          'g',
+                          '🍞'),
+                    ]),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       floatingActionButton: FloatingActionButton(
