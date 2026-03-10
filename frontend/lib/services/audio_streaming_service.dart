@@ -14,13 +14,14 @@ class AudioStreamingService {
   final FirebaseStorage _storage = FirebaseStorage.instance;
   final Map<String, String> _cachedPaths = {};
 
-  /// Audio files configuration - maps local asset names to Firebase Storage paths
+  /// Audio files configuration - maps local asset keys to Firebase Storage paths
+  /// Storage paths match the upload script (backend/scripts/upload-audio-files.js)
   static const Map<String, String> audioFiles = {
-    'sounds/Breeze.mp3': 'assets/sounds/Breeze.mp3',
-    'sounds/Forest_sound.mp3': 'assets/sounds/Forest_sound.mp3',
-    'sounds/Rain_sound.mp3': 'assets/sounds/Rain_sound.mp3',
+    'sounds/Breeze.mp3': 'audio/Breeze.mp3',
+    'sounds/Forest_sound.mp3': 'audio/Forest_sound.mp3',
+    'sounds/Rain_sound.mp3': 'audio/Rain_sound.mp3',
     'sounds/Guided_Body_Scan_Meditation.mp3':
-        'assets/sounds/Guided_Body_Scan_Meditation.mp3',
+        'audio/Guided_Body_Scan_Meditation.mp3',
   };
 
   /// Get local file path for an audio asset

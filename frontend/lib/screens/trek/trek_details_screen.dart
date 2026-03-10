@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -6,6 +7,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:http/http.dart' as http;
 import '../../theme/app_theme.dart';
 import '../../models/trek.dart';
 import '../../services/trek_service.dart';
@@ -26,13 +29,17 @@ class TrekDetailsScreen extends StatefulWidget {
 class _TrekDetailsScreenState extends State<TrekDetailsScreen> {
   final TrekService _trekService = TrekService();
   final LocationTrackingService _locationService = LocationTrackingService();
-  // Stored for potential future camera animations
-  // ignore: unused_field
   GoogleMapController? _mapController;
   bool _isFavorite = false;
   List<TrekReview> _reviews = [];
   bool _isLoadingReviews = true;
   Position? _currentPosition;
+
+  // Directions API route
+  List<LatLng> _routePoints = [];
+  bool _isLoadingRoute = false;
+
+  static const String _mapsApiKey = 'AIzaSyA59STvjWZcL-k_gipSGBDV6u797zF0Q9M';
 
   @override
   void initState() {
@@ -48,10 +55,103 @@ class _TrekDetailsScreenState extends State<TrekDetailsScreen> {
       final position = await _locationService.getCurrentLocation();
       if (mounted) {
         setState(() => _currentPosition = position);
+        // Fetch real road route once we have the user's location
+        if (widget.trek.startPoint != null) {
+          _fetchDirections(position);
+        }
       }
     } catch (e) {
       debugPrint('Error getting location: $e');
     }
+  }
+
+  /// Calls Google Directions API and stores decoded polyline points.
+  Future<void> _fetchDirections(Position from) async {
+    if (widget.trek.startPoint == null) return;
+    setState(() => _isLoadingRoute = true);
+
+    final dest = widget.trek.startPoint!;
+    final url = Uri.parse(
+      'https://maps.googleapis.com/maps/api/directions/json'
+      '?origin=${from.latitude},${from.longitude}'
+      '&destination=${dest.latitude},${dest.longitude}'
+      '&mode=driving'
+      '&key=$_mapsApiKey',
+    );
+
+    try {
+      final resp = await http.get(url).timeout(const Duration(seconds: 10));
+      if (resp.statusCode == 200) {
+        final data = json.decode(resp.body) as Map<String, dynamic>;
+        final routes = data['routes'] as List?;
+        if (routes != null && routes.isNotEmpty) {
+          final encoded = routes[0]['overview_polyline']['points'] as String;
+          final points = _decodePolyline(encoded);
+          if (mounted) setState(() => _routePoints = points);
+
+          // Fit camera to show full route
+          if (_mapController != null && points.isNotEmpty) {
+            final bounds = _boundsFromLatLngs([
+              LatLng(from.latitude, from.longitude),
+              ...points,
+            ]);
+            await Future.delayed(const Duration(milliseconds: 300));
+            _mapController?.animateCamera(
+              CameraUpdate.newLatLngBounds(bounds, 60),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Directions API error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingRoute = false);
+    }
+  }
+
+  /// Decodes a Google Maps encoded polyline string into LatLng points.
+  List<LatLng> _decodePolyline(String encoded) {
+    final points = <LatLng>[];
+    int index = 0;
+    int lat = 0, lng = 0;
+
+    while (index < encoded.length) {
+      int result = 0, shift = 0, b;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      final dLat = (result & 1) != 0 ? ~(result >> 1) : result >> 1;
+      lat += dLat;
+
+      result = 0; shift = 0;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      final dLng = (result & 1) != 0 ? ~(result >> 1) : result >> 1;
+      lng += dLng;
+
+      points.add(LatLng(lat / 1e5, lng / 1e5));
+    }
+    return points;
+  }
+
+  LatLngBounds _boundsFromLatLngs(List<LatLng> pts) {
+    double minLat = pts.first.latitude, maxLat = pts.first.latitude;
+    double minLng = pts.first.longitude, maxLng = pts.first.longitude;
+    for (final p in pts) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+    return LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
   }
 
   Future<void> _checkFavoriteStatus() async {
@@ -183,6 +283,25 @@ class _TrekDetailsScreenState extends State<TrekDetailsScreen> {
     );
   }
 
+  /// Opens Google Maps navigation to this trekking spot.
+  Future<void> _openDirections() async {
+    if (widget.trek.startPoint == null) return;
+    final lat = widget.trek.startPoint!.latitude;
+    final lng = widget.trek.startPoint!.longitude;
+    final name = Uri.encodeComponent(widget.trek.title);
+
+    // Try Google Maps app first, fall back to browser
+    final gmmIntent = Uri.parse('google.navigation:q=$lat,$lng&mode=d');
+    final gmmBrowser = Uri.parse(
+        'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&destination_place_id=$name&travelmode=driving');
+
+    if (await canLaunchUrl(gmmIntent)) {
+      await launchUrl(gmmIntent);
+    } else {
+      await launchUrl(gmmBrowser, mode: LaunchMode.externalApplication);
+    }
+  }
+
   void _startPath() {
     // Increment users today
     _trekService.incrementUsersToday(widget.trek.id);
@@ -220,6 +339,26 @@ class _TrekDetailsScreenState extends State<TrekDetailsScreen> {
 
   Set<Marker> _buildMarkers() {
     final markers = <Marker>{};
+    final isGooglePlace = widget.trek.routePoints.isEmpty &&
+        widget.trek.startPoint != null;
+
+    if (isGooglePlace) {
+      // Single prominent location pin for Google Places treks
+      markers.add(Marker(
+        markerId: const MarkerId('place'),
+        position: LatLng(
+          widget.trek.startPoint!.latitude,
+          widget.trek.startPoint!.longitude,
+        ),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        infoWindow: InfoWindow(
+          title: widget.trek.title,
+          snippet: 'Tap for directions',
+          onTap: _openDirections,
+        ),
+      ));
+      return markers;
+    }
 
     if (widget.trek.startPoint != null) {
       markers.add(Marker(
@@ -445,23 +584,38 @@ class _TrekDetailsScreenState extends State<TrekDetailsScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            'Route Map',
+                            widget.trek.routePoints.isEmpty
+                                ? 'Location Map'
+                                : 'Route Map',
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
-                          TextButton.icon(
-                            onPressed: _openFullscreenMap,
-                            icon: const Icon(Icons.fullscreen, size: 18),
-                            label: const Text('Fullscreen'),
+                          Row(
+                            children: [
+                              if (widget.trek.routePoints.isEmpty &&
+                                  widget.trek.startPoint != null)
+                                TextButton.icon(
+                                  onPressed: _openDirections,
+                                  icon: const Icon(Icons.directions, size: 18),
+                                  label: const Text('Directions'),
+                                ),
+                              TextButton.icon(
+                                onPressed: _openFullscreenMap,
+                                icon: const Icon(Icons.fullscreen, size: 18),
+                                label: const Text('Fullscreen'),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                       const SizedBox(height: AppSpacing.sm),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(AppRadius.lg),
-                        child: SizedBox(
-                          height: 250,
-                          child: _buildMap(),
-                        ),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          return SizedBox(
+                            width: constraints.maxWidth,
+                            height: 250,
+                            child: _buildMap(),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -564,33 +718,102 @@ class _TrekDetailsScreenState extends State<TrekDetailsScreen> {
   }
 
   Widget _buildMap() {
+    final isGooglePlace = widget.trek.routePoints.isEmpty &&
+        widget.trek.startPoint != null;
+
     final initialPosition = widget.trek.startPoint != null
         ? LatLng(widget.trek.startPoint!.latitude, widget.trek.startPoint!.longitude)
-        : const LatLng(20.5937, 78.9629); // Default to India center
+        : const LatLng(20.5937, 78.9629);
 
-    return GoogleMap(
-      initialCameraPosition: CameraPosition(
-        target: initialPosition,
-        zoom: 12,
-      ),
-      polylines: _buildPolylines(),
-      markers: _buildMarkers(),
-      mapType: MapType.terrain,
-      myLocationEnabled: false,
-      zoomControlsEnabled: false,
-      mapToolbarEnabled: false,
-      onMapCreated: (controller) {
-        _mapController = controller;
-        // Fit bounds after map is created
-        final bounds = _getMapBounds();
-        if (bounds != null) {
-          Future.delayed(const Duration(milliseconds: 300), () {
-            controller.animateCamera(
-              CameraUpdate.newLatLngBounds(bounds, 50),
-            );
-          });
-        }
-      },
+    final zoom = isGooglePlace ? 14.5 : 12.0;
+
+    // Build polylines: driving route + trek path if available
+    final polylines = <Polyline>{};
+
+    // Driving route from user to destination (blue dashed style)
+    if (_routePoints.isNotEmpty) {
+      polylines.add(Polyline(
+        polylineId: const PolylineId('driving_route'),
+        points: _routePoints,
+        color: const Color(0xFF1A73E8), // Google Maps blue
+        width: 5,
+        patterns: [], // solid line
+        jointType: JointType.round,
+        endCap: Cap.roundCap,
+        startCap: Cap.roundCap,
+      ));
+    }
+
+    // Original trek path (green) — only for user-recorded routes
+    for (final p in _buildPolylines()) {
+      polylines.add(p);
+    }
+
+    return Stack(
+      children: [
+        GoogleMap(
+          initialCameraPosition: CameraPosition(
+            target: initialPosition,
+            zoom: zoom,
+          ),
+          polylines: polylines,
+          markers: _buildMarkers(),
+          mapType: MapType.normal,
+          myLocationEnabled: _currentPosition != null,
+          myLocationButtonEnabled: false,
+          zoomControlsEnabled: true,
+          mapToolbarEnabled: true,
+          onMapCreated: (controller) {
+            _mapController = controller;
+            if (_routePoints.isNotEmpty) {
+              // Already have route — fit to it
+              final allPts = _currentPosition != null
+                  ? [LatLng(_currentPosition!.latitude, _currentPosition!.longitude), ..._routePoints]
+                  : _routePoints;
+              Future.delayed(const Duration(milliseconds: 300), () {
+                controller.animateCamera(
+                  CameraUpdate.newLatLngBounds(_boundsFromLatLngs(allPts), 60),
+                );
+              });
+            } else {
+              final bounds = _getMapBounds();
+              if (bounds != null) {
+                Future.delayed(const Duration(milliseconds: 300), () {
+                  controller.animateCamera(
+                    CameraUpdate.newLatLngBounds(bounds, 50),
+                  );
+                });
+              }
+            }
+          },
+        ),
+        // Loading indicator while fetching route
+        if (_isLoadingRoute)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 12, height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2,
+                        color: const Color(0xFF1A73E8)),
+                  ),
+                  const SizedBox(width: 6),
+                  const Text('Loading route...', style: TextStyle(fontSize: 11)),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1054,14 +1277,121 @@ class _FullscreenMapScreen extends StatefulWidget {
 }
 
 class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
-  // ignore: unused_field
   GoogleMapController? _mapController;
-  MapType _mapType = MapType.terrain;
+  MapType _mapType = MapType.normal;
+  List<LatLng> _routePoints = [];
+  bool _isLoadingRoute = false;
+
+  static const String _mapsApiKey = 'AIzaSyA59STvjWZcL-k_gipSGBDV6u797zF0Q9M';
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.currentPosition != null && widget.trek.startPoint != null) {
+      _fetchDirections();
+    }
+  }
+
+  Future<void> _fetchDirections() async {
+    final from = widget.currentPosition!;
+    final dest = widget.trek.startPoint!;
+    setState(() => _isLoadingRoute = true);
+
+    final url = Uri.parse(
+      'https://maps.googleapis.com/maps/api/directions/json'
+      '?origin=${from.latitude},${from.longitude}'
+      '&destination=${dest.latitude},${dest.longitude}'
+      '&mode=driving'
+      '&key=$_mapsApiKey',
+    );
+
+    try {
+      final resp = await http.get(url).timeout(const Duration(seconds: 10));
+      if (resp.statusCode == 200) {
+        final data = json.decode(resp.body) as Map<String, dynamic>;
+        final routes = data['routes'] as List?;
+        if (routes != null && routes.isNotEmpty) {
+          final encoded = routes[0]['overview_polyline']['points'] as String;
+          final points = _decodePolyline(encoded);
+          if (mounted) {
+            setState(() => _routePoints = points);
+            Future.delayed(const Duration(milliseconds: 400), () {
+              final allPts = [
+                LatLng(from.latitude, from.longitude),
+                ...points,
+              ];
+              _mapController?.animateCamera(
+                CameraUpdate.newLatLngBounds(_boundsFromLatLngs(allPts), 60),
+              );
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Fullscreen directions error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingRoute = false);
+    }
+  }
+
+  List<LatLng> _decodePolyline(String encoded) {
+    final points = <LatLng>[];
+    int index = 0;
+    int lat = 0, lng = 0;
+    while (index < encoded.length) {
+      int result = 0, shift = 0, b;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      final dLat = (result & 1) != 0 ? ~(result >> 1) : result >> 1;
+      lat += dLat;
+      result = 0; shift = 0;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      final dLng = (result & 1) != 0 ? ~(result >> 1) : result >> 1;
+      lng += dLng;
+      points.add(LatLng(lat / 1e5, lng / 1e5));
+    }
+    return points;
+  }
+
+  LatLngBounds _boundsFromLatLngs(List<LatLng> pts) {
+    double minLat = pts.first.latitude, maxLat = pts.first.latitude;
+    double minLng = pts.first.longitude, maxLng = pts.first.longitude;
+    for (final p in pts) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+    return LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+  }
 
   Set<Polyline> _buildPolylines() {
     final polylines = <Polyline>{};
 
-    // Trek route - only show if actual route points exist (GPX data, drawn paths, recorded tracks)
+    // Driving route from user to destination
+    if (_routePoints.isNotEmpty) {
+      polylines.add(Polyline(
+        polylineId: const PolylineId('driving_route'),
+        points: _routePoints,
+        color: const Color(0xFF1A73E8),
+        width: 5,
+        jointType: JointType.round,
+        endCap: Cap.roundCap,
+        startCap: Cap.roundCap,
+      ));
+    }
+
+    // Trek route — only for user-recorded GPX/drawn paths
     if (widget.trek.routePoints.isNotEmpty) {
       polylines.add(Polyline(
         polylineId: const PolylineId('trek_route'),
@@ -1073,13 +1403,13 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
       ));
     }
 
-    // Don't show straight line to start - use "Get Directions" button instead for proper routing
-
     return polylines;
   }
 
   Set<Marker> _buildMarkers() {
     final markers = <Marker>{};
+    final isGooglePlace = widget.trek.routePoints.isEmpty &&
+        widget.trek.startPoint != null;
 
     // User location
     if (widget.currentPosition != null) {
@@ -1089,6 +1419,17 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
         infoWindow: const InfoWindow(title: 'Your Location'),
       ));
+    }
+
+    if (isGooglePlace) {
+      // Single location pin for Google Places — start and end are the same
+      markers.add(Marker(
+        markerId: const MarkerId('place'),
+        position: LatLng(widget.trek.startPoint!.latitude, widget.trek.startPoint!.longitude),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+        infoWindow: InfoWindow(title: widget.trek.title),
+      ));
+      return markers;
     }
 
     // Start point
@@ -1116,47 +1457,37 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
 
   LatLngBounds _getBounds() {
     final points = <LatLng>[];
-    
     if (widget.currentPosition != null) {
       points.add(LatLng(widget.currentPosition!.latitude, widget.currentPosition!.longitude));
     }
-    if (widget.trek.startPoint != null) {
-      points.add(LatLng(widget.trek.startPoint!.latitude, widget.trek.startPoint!.longitude));
+    // Prefer actual driving route points for tightest bounds
+    if (_routePoints.isNotEmpty) {
+      points.addAll(_routePoints);
+    } else {
+      if (widget.trek.startPoint != null) {
+        points.add(LatLng(widget.trek.startPoint!.latitude, widget.trek.startPoint!.longitude));
+      }
+      if (widget.trek.endPoint != null) {
+        points.add(LatLng(widget.trek.endPoint!.latitude, widget.trek.endPoint!.longitude));
+      }
+      for (final p in widget.trek.routePoints) {
+        points.add(LatLng(p.latitude, p.longitude));
+      }
     }
-    if (widget.trek.endPoint != null) {
-      points.add(LatLng(widget.trek.endPoint!.latitude, widget.trek.endPoint!.longitude));
-    }
-    for (final p in widget.trek.routePoints) {
-      points.add(LatLng(p.latitude, p.longitude));
-    }
-
     if (points.isEmpty) {
       return LatLngBounds(
         southwest: const LatLng(12.9, 77.5),
         northeast: const LatLng(13.1, 77.7),
       );
     }
-
-    double minLat = points.first.latitude;
-    double maxLat = points.first.latitude;
-    double minLng = points.first.longitude;
-    double maxLng = points.first.longitude;
-
-    for (final p in points) {
-      if (p.latitude < minLat) minLat = p.latitude;
-      if (p.latitude > maxLat) maxLat = p.latitude;
-      if (p.longitude < minLng) minLng = p.longitude;
-      if (p.longitude > maxLng) maxLng = p.longitude;
-    }
-
-    return LatLngBounds(
-      southwest: LatLng(minLat, minLng),
-      northeast: LatLng(maxLat, maxLng),
-    );
+    return _boundsFromLatLngs(points);
   }
 
   @override
   Widget build(BuildContext context) {
+    final isGooglePlace = widget.trek.routePoints.isEmpty &&
+        widget.trek.startPoint != null;
+
     final initialPos = widget.trek.startPoint != null
         ? LatLng(widget.trek.startPoint!.latitude, widget.trek.startPoint!.longitude)
         : widget.currentPosition != null
@@ -1167,11 +1498,31 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
       appBar: AppBar(
         title: Text(widget.trek.title),
         actions: [
+          if (isGooglePlace && widget.trek.startPoint != null)
+            IconButton(
+              icon: const Icon(Icons.directions),
+              tooltip: 'Get Directions',
+              onPressed: () async {
+                final lat = widget.trek.startPoint!.latitude;
+                final lng = widget.trek.startPoint!.longitude;
+                final gmmIntent =
+                    Uri.parse('google.navigation:q=$lat,$lng&mode=d');
+                final gmmBrowser = Uri.parse(
+                    'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving');
+                if (await canLaunchUrl(gmmIntent)) {
+                  await launchUrl(gmmIntent);
+                } else {
+                  await launchUrl(gmmBrowser,
+                      mode: LaunchMode.externalApplication);
+                }
+              },
+            ),
           IconButton(
-            icon: Icon(_mapType == MapType.terrain ? Icons.satellite : Icons.terrain),
+            icon: Icon(_mapType == MapType.normal ? Icons.satellite_alt : Icons.map),
+            tooltip: 'Toggle map type',
             onPressed: () {
               setState(() {
-                _mapType = _mapType == MapType.terrain ? MapType.satellite : MapType.terrain;
+                _mapType = _mapType == MapType.normal ? MapType.hybrid : MapType.normal;
               });
             },
           ),
@@ -1180,13 +1531,17 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
       body: Stack(
         children: [
           GoogleMap(
-            initialCameraPosition: CameraPosition(target: initialPos, zoom: 13),
+            initialCameraPosition: CameraPosition(
+              target: initialPos,
+              zoom: isGooglePlace ? 14.5 : 13.0,
+            ),
             mapType: _mapType,
             polylines: _buildPolylines(),
             markers: _buildMarkers(),
             myLocationEnabled: true,
             myLocationButtonEnabled: true,
             zoomControlsEnabled: true,
+            mapToolbarEnabled: true,
             onMapCreated: (controller) {
               _mapController = controller;
               Future.delayed(const Duration(milliseconds: 500), () {
@@ -1216,9 +1571,11 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _LegendItem(color: Colors.blue, label: 'Route to Start', isDashed: true),
-                  const SizedBox(height: 4),
-                  _LegendItem(color: AppColors.primary, label: 'Trek Path'),
+                  _LegendItem(color: const Color(0xFF1A73E8), label: 'Driving Route'),
+                  if (!isGooglePlace) ...[
+                    const SizedBox(height: 4),
+                    _LegendItem(color: AppColors.primary, label: 'Trek Path'),
+                  ],
                   const SizedBox(height: 8),
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1229,17 +1586,51 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
                       const SizedBox(width: 12),
                       const Icon(Icons.location_on, color: Colors.green, size: 16),
                       const SizedBox(width: 4),
-                      const Text('Start', style: TextStyle(fontSize: 12)),
-                      const SizedBox(width: 12),
-                      const Icon(Icons.location_on, color: Colors.red, size: 16),
-                      const SizedBox(width: 4),
-                      const Text('End', style: TextStyle(fontSize: 12)),
+                      Text(isGooglePlace ? 'Place' : 'Start',
+                          style: const TextStyle(fontSize: 12)),
+                      if (!isGooglePlace) ...[
+                        const SizedBox(width: 12),
+                        const Icon(Icons.location_on, color: Colors.red, size: 16),
+                        const SizedBox(width: 4),
+                        const Text('End', style: TextStyle(fontSize: 12)),
+                      ],
                     ],
                   ),
                 ],
               ),
             ),
           ),
+          // Route loading indicator
+          if (_isLoadingRoute)
+            Positioned(
+              top: 12,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 14, height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFF1A73E8),
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Finding best route...', style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -1249,12 +1640,10 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
 class _LegendItem extends StatelessWidget {
   final Color color;
   final String label;
-  final bool isDashed;
 
   const _LegendItem({
     required this.color,
     required this.label,
-    this.isDashed = false,
   });
 
   @override
@@ -1266,8 +1655,8 @@ class _LegendItem extends StatelessWidget {
           width: 24,
           height: 3,
           decoration: BoxDecoration(
-            color: isDashed ? null : color,
-            border: isDashed ? Border.all(color: color, width: 2) : null,
+            color: color,
+            border: null,
           ),
         ),
         const SizedBox(width: 8),

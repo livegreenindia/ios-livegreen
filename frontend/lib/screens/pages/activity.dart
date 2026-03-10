@@ -156,12 +156,47 @@ class _ActivityPageState extends State<ActivityPage> {
     final isExplorer = _isNatureExplorerActivity(activity);
     final isNutrition = _isNutritionActivity(activity);
     final isLux = _isLuxActivity(activity);
-    final usePracticeStyle = isMindfulnessBellReminder ||
-        isMindfulness ||
-        isScreenControl ||
-        isExplorer ||
-        isLux;
-    final useDietStyle = isNutrition && !usePracticeStyle;
+    // Override button type from Firestore field (set in admin panel)
+    final actionButtonType =
+        (activity['actionButtonType'] ?? 'auto').toString().toLowerCase();
+    final bool usePracticeStyle;
+    final bool useDietStyle;
+    final bool hideActionButton = actionButtonType == 'none';
+    if (actionButtonType == 'auto' || actionButtonType.isEmpty) {
+      usePracticeStyle = isMindfulnessBellReminder ||
+          isMindfulness ||
+          isScreenControl ||
+          isExplorer ||
+          isLux;
+      useDietStyle = isNutrition && !usePracticeStyle;
+    } else {
+      usePracticeStyle = actionButtonType == 'practice' ||
+          actionButtonType == 'explore' ||
+          actionButtonType == 'measure';
+      useDietStyle = actionButtonType == 'diet';
+    }
+
+    // Determine button label from explicit type or fall back to auto-detect
+    final String actionButtonLabel;
+    if (actionButtonType != 'auto' &&
+        actionButtonType != 'none' &&
+        actionButtonType.isNotEmpty) {
+      const labelMap = {
+        'practice': 'Practice',
+        'explore': 'Explore',
+        'diet': 'Diet',
+        'measure': 'Measure',
+        'focus': 'Focus',
+        'details': 'Details',
+      };
+      actionButtonLabel = labelMap[actionButtonType] ?? 'Details';
+    } else {
+      actionButtonLabel = usePracticeStyle
+          ? (isExplorer ? 'Explore' : (isLux ? 'Measure' : 'Practice'))
+          : (useDietStyle
+              ? 'Diet'
+              : (activity['title'] == 'Deep work' ? 'Focus' : 'Details'));
+    }
 
     Widget actionButton;
     if (completed) {
@@ -188,6 +223,8 @@ class _ActivityPageState extends State<ActivityPage> {
           ],
         ),
       );
+    } else if (hideActionButton) {
+      actionButton = const SizedBox.shrink();
     } else {
       actionButton = ElevatedButton(
         onPressed: () async {
@@ -470,11 +507,14 @@ class _ActivityPageState extends State<ActivityPage> {
                       const SizedBox(height: 8),
                       Row(
                         children: [
-                          // Show clock icon for mindfulness/MBSR activities, info icon for others with details
-                          if (activity['isWellnessActivity'] == true &&
-                              (activity['description'] != null ||
-                                  activity['tips'] != null ||
-                                  activity['youtubeUrl'] != null))
+                          // Always show the action button for special-click types;
+                          // for generic activities show Details only when content exists.
+                          if (usePracticeStyle ||
+                              useDietStyle ||
+                              actionButtonLabel != 'Details' ||
+                              activity['description'] != null ||
+                              activity['tips'] != null ||
+                              activity['youtubeUrl'] != null)
                             InkWell(
                               borderRadius: BorderRadius.circular(12),
                               onTap: () => _showActivityInfo(context, activity),
@@ -485,18 +525,14 @@ class _ActivityPageState extends State<ActivityPage> {
                                   vertical: 8,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: (usePracticeStyle || useDietStyle)
+                                  color: (usePracticeStyle || useDietStyle || actionButtonLabel != 'Details')
                                       ? const Color(0xFFFFF3E0)
-                                      : (useDietStyle
-                                          ? Colors.green.shade50
-                                          : const Color(0xFFF5F5F5)),
+                                      : const Color(0xFFF5F5F5),
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
-                                    color: (usePracticeStyle || useDietStyle)
+                                    color: (usePracticeStyle || useDietStyle || actionButtonLabel != 'Details')
                                         ? const Color(0xFFD7CCC8)
-                                        : (useDietStyle
-                                            ? Colors.green.shade200
-                                            : Colors.grey.shade300),
+                                        : Colors.grey.shade300,
                                     width: 1,
                                   ),
                                 ),
@@ -504,38 +540,23 @@ class _ActivityPageState extends State<ActivityPage> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
-                                      usePracticeStyle
+                                      (usePracticeStyle || actionButtonLabel != 'Details')
                                           ? Icons.play_arrow_rounded
                                           : Icons.info_outline,
-                                      color: usePracticeStyle
+                                      color: (usePracticeStyle || useDietStyle || actionButtonLabel != 'Details')
                                           ? const Color(0xFF800000)
-                                          : (useDietStyle
-                                              ? const Color(0xFF800000)
-                                              : primaryColor),
+                                          : primaryColor,
                                       size: 16,
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
-                                      usePracticeStyle
-                                          ? (isExplorer
-                                              ? 'Explore'
-                                              : (isLux
-                                                  ? 'Measure'
-                                                  : 'Practice'))
-                                          : (useDietStyle
-                                              ? 'Diet'
-                                              : (activity['title'] ==
-                                                      'Deep work'
-                                                  ? 'Focus'
-                                                  : 'Details')),
+                                      actionButtonLabel,
                                       style: GoogleFonts.manrope(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w700,
-                                        color: usePracticeStyle
+                                        color: (usePracticeStyle || useDietStyle || actionButtonLabel != 'Details')
                                             ? const Color(0xFF800000)
-                                            : (useDietStyle
-                                                ? const Color(0xFF800000)
-                                                : primaryColor),
+                                            : primaryColor,
                                       ),
                                     ),
                                   ],
@@ -2120,6 +2141,20 @@ class _ActivityPageState extends State<ActivityPage> {
 
     final title = (activity['title'] ?? '').toString().toLowerCase();
     final category = (activity['category'] ?? '').toString().toLowerCase();
+
+    // Exclude indoor/non-outdoor categories so keyword matches don't false-fire
+    // (e.g. "nature music" should NOT open the nature explorer)
+    const indoorCategories = [
+      'relaxation',
+      'sleep_hygiene',
+      'social',
+      'productivity',
+      'mental_fitness',
+      'eye_health',
+      'posture',
+      'digital_wellness',
+    ];
+    if (indoorCategories.contains(category)) return false;
     final description =
         (activity['description'] ?? '').toString().toLowerCase();
     const keywords = [
@@ -3325,29 +3360,13 @@ Join me on LiveGreen and start your wellness journey today!
     });
 
     try {
-      // First, check if user has wellness profile
-      final hasWellnessProfile =
-          await WellnessActivityService.hasWellnessProfile();
+      // always load the work activity list seeded in Firestore; profiles no
+      // longer change which items are shown. fall back to API only if the
+      // collection happens to be empty (e.g. emulator before seeding).
+      List<Map<String, dynamic>> activities =
+          await WellnessActivityService.getAllDailyActivities();
 
-      List<Map<String, dynamic>> activities;
-
-      if (hasWellnessProfile) {
-        // Load ALL wellness activities for the entire day (not just current time slot)
-        activities = await WellnessActivityService.getAllDailyActivities();
-
-        // If no wellness activities (shouldn't happen), fallback to API
-        if (activities.isEmpty) {
-          final api = ApiService(baseUrl: cfg.apiBaseUrl);
-          final list = await api.getActivities().timeout(
-                const Duration(seconds: 15),
-                onTimeout: () => throw TimeoutException('Request timed out'),
-              );
-          activities = List<Map<String, dynamic>>.from(
-            list.map((e) => Map<String, dynamic>.from(e as Map)),
-          );
-        }
-      } else {
-        // No wellness profile - load regular activities from API
+      if (activities.isEmpty) {
         final api = ApiService(baseUrl: cfg.apiBaseUrl);
         final list = await api.getActivities().timeout(
               const Duration(seconds: 15),

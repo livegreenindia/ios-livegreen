@@ -43,22 +43,12 @@ class _SignupScreenState extends State<SignupScreen> {
 
       if (!mounted) return;
 
-      final hasProfile = doc.exists && doc.data()?['wellness_profile'] != null;
-      
-      if (hasProfile) {
-        // User has profile, request basic location permission and go to home
-        await LocationPrefetchService.requestBasicPermission(context);
-        if (!mounted) return;
-        Navigator.pushReplacementNamed(context, AppRoutes.home);
-      } else {
-        // No profile, show onboarding
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const ProfileSelectionOnboarding(),
-          ),
-        );
-      }
+      // we no longer require a profile choice; every user gets work
+      // activities. just go straight home.
+      await LocationPrefetchService.requestBasicPermission(context);
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, AppRoutes.home);
+
     } catch (e) {
       // On error, just navigate to home
       if (mounted) {

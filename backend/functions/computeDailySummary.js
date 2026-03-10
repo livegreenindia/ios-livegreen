@@ -1,20 +1,10 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 
-// Wellness activity counts per profile (based on wellness_schedule_data.dart)
-// Each profile has different number of daily activities
-const WELLNESS_ACTIVITY_COUNTS = {
-  // Working profile: 6 morning + 6 mid-day + 3 afternoon + 5 evening = 20 weekday, 6 weekend
-  'Working': { weekday: 20, weekend: 6 },
-  // Student profile: 6 morning + 6 mid-day + 3 afternoon + 5 evening = 20 weekday, 6 weekend
-  'Student': { weekday: 20, weekend: 6 },
-  // Housewife profile: 6 morning + 6 mid-day + 3 afternoon + 5 evening = 20 weekday, 6 weekend
-  'Housewife': { weekday: 20, weekend: 6 },
-  // Retired profile: 6 morning + 6 mid-day + 3 afternoon + 5 evening = 20 weekday, 6 weekend
-  'Retired': { weekday: 20, weekend: 6 },
-  // Default for users without profile
-  'default': { weekday: 10, weekend: 5 }
-};
+// we now store the list of "work" activities in Firestore; every user
+// gets the same set regardless of profile.  expected counts are computed by
+// counting documents in that collection, which keeps the daily summaries
+// aligned with whatever the admin has seeded.
 
 // Check if a date is weekend (Saturday or Sunday)
 function isWeekend(date) {
@@ -22,10 +12,16 @@ function isWeekend(date) {
   return day === 0 || day === 6; // 0 = Sunday, 6 = Saturday
 }
 
-// Get expected activity count for user based on their profile and day type
-function getExpectedActivityCount(profile, date) {
-  const counts = WELLNESS_ACTIVITY_COUNTS[profile] || WELLNESS_ACTIVITY_COUNTS['default'];
-  return isWeekend(date) ? counts.weekend : counts.weekday;
+// Get expected activity count by querying Firestore.  The profile parameter is
+// ignored but kept for backwards compatibility.
+async function getExpectedActivityCount(profile, date, db) {
+  try {
+    const snap = await db.collection('activities').get();
+    return snap.size;
+  } catch (e) {
+    console.error('Error counting activities', e);
+    return 0;
+  }
 }
 
 // Computes daily completion percent for all users once per day (UTC midnight)
@@ -52,8 +48,9 @@ exports.scheduledDailySummary = functions.pubsub.schedule('0 1 * * *').timeZone(
         const userData = userDoc.exists ? userDoc.data() : {};
         const wellnessProfile = userData.wellness_profile || 'default';
         
-        // Get expected activity count based on profile and day type
-        const expectedActivities = getExpectedActivityCount(wellnessProfile, yesterday);
+        // Get expected activity count (profile ignored) by querying the
+        // activities collection in Firestore.
+        const expectedActivities = await getExpectedActivityCount(wellnessProfile, yesterday, db);
         
         // Count completed activities for that date
         // Note: Completions are stored with 'date' field (YYYY-MM-DD format)
@@ -117,8 +114,8 @@ exports.computeUserDailySummary = functions.https.onRequest(async (req, res) => 
     const userData = userDoc.exists ? userDoc.data() : {};
     const wellnessProfile = userData.wellness_profile || 'default';
     
-    // Get expected activity count
-    const expectedActivities = getExpectedActivityCount(wellnessProfile, targetDate);
+    // Get expected activity count from Firestore collection
+    const expectedActivities = await getExpectedActivityCount(wellnessProfile, targetDate, db);
     
     // Count completed activities
     // Note: Completions are stored with 'date' field (YYYY-MM-DD format)

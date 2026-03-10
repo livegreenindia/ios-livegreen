@@ -343,9 +343,7 @@ class _CameraPageState extends State<CameraPage> {
                   Future.delayed(const Duration(milliseconds: 500), () {
                     // Find the TabController and switch to history tab
                     final tabController = DefaultTabController.of(context);
-                    if (tabController != null) {
-                      tabController.animateTo(2); // Switch to History tab
-                    }
+                    tabController.animateTo(2); // Switch to History tab
                   });
                 }
               },
@@ -392,9 +390,7 @@ class _CameraPageState extends State<CameraPage> {
                   Future.delayed(const Duration(milliseconds: 500), () {
                     // Find the TabController and switch to history tab
                     final tabController = DefaultTabController.of(context);
-                    if (tabController != null) {
-                      tabController.animateTo(2); // Switch to History tab
-                    }
+                    tabController.animateTo(2); // Switch to History tab
                   });
                 }
               },

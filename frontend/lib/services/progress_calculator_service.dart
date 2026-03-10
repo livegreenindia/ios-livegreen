@@ -8,25 +8,33 @@ class ProgressCalculatorService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  /// Expected activity counts per profile
-  /// Based on wellness_schedule_data.dart
-  static const Map<String, Map<String, int>> _activityCounts = {
-    'Working': {'weekday': 20, 'weekend': 6},
-    'Student': {'weekday': 20, 'weekend': 6},
-    'Housewife': {'weekday': 20, 'weekend': 6},
-    'Retired': {'weekday': 20, 'weekend': 6},
-    'default': {'weekday': 10, 'weekend': 5},
-  };
+  // the expected number of activities is simply the number of documents in
+  // the Firestore `activities` collection (work items only).  this allows the
+  // admin to change the list without updating the mobile app.
+
 
   /// Check if a date is weekend
   static bool _isWeekend(DateTime date) {
     return date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
   }
 
-  /// Get expected activity count for a given profile and date
+  /// Get expected activity count by querying Firestore.  We don't use the
+  /// profile any more since every user sees the same work activities.
+  static Future<int> _fetchExpectedCount() async {
+    try {
+      // reuse service which already filters weekend vs weekday
+      final list = await WellnessActivityService.getAllDailyActivities();
+      return list.length;
+    } catch (e) {
+      debugPrint('Error fetching expected activity count: $e');
+      return 0;
+    }
+  }
+
+  /// Legacy compatibility function, kept for callers which still expect an
+  /// integer synchronously.  It returns 0 and should not be used.
   static int getExpectedActivityCount(String? profile, DateTime date) {
-    final counts = _activityCounts[profile] ?? _activityCounts['default']!;
-    return _isWeekend(date) ? counts['weekend']! : counts['weekday']!;
+    return 0;
   }
 
   /// Get today's progress for the current user
@@ -41,11 +49,10 @@ class ProgressCalculatorService {
       final today = DateTime.now();
       final dateStr = '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
-      // Get user's wellness profile
-      final profile = await WellnessActivityService.getUserProfile() ?? 'default';
-
-      // Get expected activity count
-      final expectedCount = getExpectedActivityCount(profile, today);
+      // Get expected activity count dynamically from Firestore
+      final expectedCount = await _fetchExpectedCount();
+      // also fetch profile just so we can return it for analytics/etc
+      final profile = await WellnessActivityService.getUserProfile() ?? 'unknown';
 
       // Count completed activities for today
       // Note: Backend stores date as 'date' field (YYYY-MM-DD format)
@@ -106,7 +113,7 @@ class ProgressCalculatorService {
             .get();
 
         final completedCount = completionsSnap.size;
-        final expectedCount = getExpectedActivityCount(profile, current);
+        final expectedCount = await _fetchExpectedCount();
         final completionPercent = expectedCount == 0
             ? 0
             : (completedCount / expectedCount * 100).clamp(0, 100).round();
@@ -297,8 +304,9 @@ class ProgressCalculatorService {
         .where('date', isEqualTo: dateStr)
         .snapshots()
         .asyncMap((snapshot) async {
-          final profile = await WellnessActivityService.getUserProfile() ?? 'default';
-          final expectedCount = getExpectedActivityCount(profile, today);
+          // profile not used for expected count, but still returned
+          final expectedCount = await _fetchExpectedCount();
+          final profile = await WellnessActivityService.getUserProfile() ?? 'unknown';
           final completedCount = snapshot.size;
           final completionPercent = expectedCount == 0
               ? 0

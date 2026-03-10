@@ -1,16 +1,23 @@
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../models/mindfulness_bell_settings.dart';
+import 'audio_streaming_service.dart';
 import 'device_audio_mode_service.dart';
+import 'mindfulness_bell_settings_service.dart';
 
 class MindfulnessBellScheduler {
-  static const String _audioChannelId = 'mindfulness_bell_audio';
+  // Use a versioned channel id so sound config updates apply on existing installs.
+  static const String _audioChannelId = 'mindfulness_bell_audio_v2';
   static const String _vibrateChannelId = 'mindfulness_bell_vibrate';
   static const int _notificationIdBase = 67000;
   static const int _maxScheduledReminders = 96;
+  // Temporary testing override: schedule reminders every 30 seconds in debug.
+  static final Duration? _debugIntervalOverride =
+      kDebugMode ? const Duration(seconds: 30) : null;
 
   static final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
@@ -36,15 +43,28 @@ class MindfulnessBellScheduler {
         _notificationsPlugin.resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
 
-    await androidImplementation?.requestNotificationsPermission();
+    final notificationsEnabled =
+        await androidImplementation?.areNotificationsEnabled();
+    if (notificationsEnabled == false) {
+      await androidImplementation?.requestNotificationsPermission();
+    }
+
+    var canScheduleExact =
+        await androidImplementation?.canScheduleExactNotifications();
+    if (canScheduleExact == false) {
+      await androidImplementation?.requestExactAlarmsPermission();
+      canScheduleExact =
+          await androidImplementation?.canScheduleExactNotifications();
+    }
 
     await androidImplementation?.createNotificationChannel(
-      const AndroidNotificationChannel(
+      AndroidNotificationChannel(
         _audioChannelId,
         'Mindfulness Bell Audio',
         description: 'Mindfulness reminders with sound and vibration',
         importance: Importance.high,
         playSound: true,
+        audioAttributesUsage: AudioAttributesUsage.alarm,
         enableVibration: true,
       ),
     );
@@ -60,6 +80,12 @@ class MindfulnessBellScheduler {
       ),
     );
 
+    if (kDebugMode) {
+      debugPrint(
+        'Mindfulness Bell init: notificationsEnabled=$notificationsEnabled, canScheduleExact=${canScheduleExact ?? false}',
+      );
+    }
+
     _notificationsInitialized = true;
   }
 
@@ -69,47 +95,149 @@ class MindfulnessBellScheduler {
     await initialize();
     await cancelRecurringReminder();
 
-    final shouldMute = await DeviceAudioModeService.shouldMuteBell(settings);
-    final vibrateOnly = shouldMute || settings.sound == AlarmSound.vibrateOnly;
+    final scheduleAnchor = tz.TZDateTime.now(tz.local);
+    final reminderInterval =
+        _debugIntervalOverride ?? settings.interval.duration;
+    final alwaysVibrateOnly = settings.sound == AlarmSound.vibrateOnly;
+    var scheduleMode = await _resolveScheduleMode();
 
-    for (var index = 1; index <= _maxScheduledReminders; index++) {
-      final scheduledAt = tz.TZDateTime.now(
-        tz.local,
-      ).add(settings.interval.duration * index);
-
-      await _notificationsPlugin.zonedSchedule(
-        _notificationIdBase + index,
-        'Mindfulness Bell',
-        vibrateOnly
-            ? 'Reminder triggered (vibrate only due to settings or mute conditions).'
-            : 'Reminder triggered (${settings.sound.label}).',
-        scheduledAt,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            vibrateOnly ? _vibrateChannelId : _audioChannelId,
-            vibrateOnly
-                ? 'Mindfulness Bell Vibrate Only'
-                : 'Mindfulness Bell Audio',
-            channelDescription: vibrateOnly
-                ? 'Mindfulness reminders with vibration only'
-                : 'Mindfulness reminders with sound and vibration',
-            importance: Importance.high,
-            priority: Priority.high,
-            playSound: !vibrateOnly,
-            enableVibration: true,
-            category: AndroidNotificationCategory.reminder,
-            ticker: 'Mindfulness Bell Reminder',
-            visibility: NotificationVisibility.public,
-            actions: const <AndroidNotificationAction>[
-              AndroidNotificationAction('dismiss', 'Dismiss'),
-            ],
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
+    if (kDebugMode && _debugIntervalOverride != null) {
+      debugPrint(
+        'Mindfulness Bell test mode enabled: scheduling every ${reminderInterval.inSeconds} seconds.',
       );
     }
+
+    for (var index = 1; index <= _maxScheduledReminders; index++) {
+      final scheduledAt = scheduleAnchor.add(reminderInterval * index);
+      final vibrateOnly =
+          alwaysVibrateOnly || _isWithinQuietHoursAt(settings, scheduledAt);
+
+      try {
+        await _scheduleReminderNotification(
+          id: _notificationIdBase + index,
+          scheduledAt: scheduledAt,
+          vibrateOnly: vibrateOnly,
+          sound: settings.sound,
+          scheduleMode: scheduleMode,
+        );
+      } catch (error) {
+        // On Android 12+, exact alarms may be blocked by special app access.
+        if (scheduleMode == AndroidScheduleMode.exactAllowWhileIdle) {
+          scheduleMode = AndroidScheduleMode.inexactAllowWhileIdle;
+          if (kDebugMode) {
+            debugPrint(
+              'Exact alarm scheduling unavailable; falling back to inexact mode: $error',
+            );
+          }
+
+          await _scheduleReminderNotification(
+            id: _notificationIdBase + index,
+            scheduledAt: scheduledAt,
+            vibrateOnly: vibrateOnly,
+            sound: settings.sound,
+            scheduleMode: scheduleMode,
+          );
+        } else {
+          rethrow;
+        }
+      }
+    }
+
+    if (kDebugMode) {
+      final pending = await _notificationsPlugin.pendingNotificationRequests();
+      final scheduledCount =
+          pending.where((request) => _isScheduledReminderId(request.id)).length;
+      debugPrint(
+        'Mindfulness Bell reminders scheduled: $scheduledCount at ${reminderInterval.inSeconds}s interval.',
+      );
+    }
+  }
+
+  static Future<void> restoreReminderIfEnabled() async {
+    await initialize();
+
+    final settingsService = MindfulnessBellSettingsService();
+    final enabled = await settingsService.isReminderEnabled();
+    if (!enabled) {
+      return;
+    }
+
+    final pending = await _notificationsPlugin.pendingNotificationRequests();
+    final alreadyScheduled =
+        pending.any((request) => _isScheduledReminderId(request.id));
+
+    if (alreadyScheduled) {
+      return;
+    }
+
+    final settings = await settingsService.loadSettings();
+    await startRecurringReminder(settings);
+
+    if (kDebugMode) {
+      debugPrint('Mindfulness Bell reminders restored on app launch.');
+    }
+  }
+
+  static bool _isScheduledReminderId(int id) {
+    return id > _notificationIdBase &&
+        id <= (_notificationIdBase + _maxScheduledReminders);
+  }
+
+  static Future<void> _scheduleReminderNotification({
+    required int id,
+    required tz.TZDateTime scheduledAt,
+    required bool vibrateOnly,
+    required AlarmSound sound,
+    required AndroidScheduleMode scheduleMode,
+  }) async {
+    await _notificationsPlugin.zonedSchedule(
+      id,
+      'Mindfulness Bell',
+      vibrateOnly
+          ? 'Reminder triggered (vibrate only due to settings or mute conditions).'
+          : 'Reminder triggered (${sound.label}).',
+      scheduledAt,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          vibrateOnly ? _vibrateChannelId : _audioChannelId,
+          vibrateOnly
+              ? 'Mindfulness Bell Vibrate Only'
+              : 'Mindfulness Bell Audio',
+          channelDescription: vibrateOnly
+              ? 'Mindfulness reminders with vibration only'
+              : 'Mindfulness reminders with sound and vibration',
+          importance: Importance.high,
+          priority: Priority.high,
+          playSound: !vibrateOnly,
+          audioAttributesUsage: AudioAttributesUsage.alarm,
+          enableVibration: true,
+          category: AndroidNotificationCategory.reminder,
+          ticker: 'Mindfulness Bell Reminder',
+          visibility: NotificationVisibility.public,
+          actions: const <AndroidNotificationAction>[
+            AndroidNotificationAction('dismiss', 'Dismiss'),
+          ],
+        ),
+      ),
+      androidScheduleMode: scheduleMode,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+  }
+
+  static Future<AndroidScheduleMode> _resolveScheduleMode() async {
+    final androidImplementation =
+        _notificationsPlugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+
+    final canScheduleExact =
+        await androidImplementation?.canScheduleExactNotifications();
+
+    if (canScheduleExact == true) {
+      return AndroidScheduleMode.exactAllowWhileIdle;
+    }
+
+    return AndroidScheduleMode.inexactAllowWhileIdle;
   }
 
   static Future<void> cancelRecurringReminder() async {
@@ -162,12 +290,18 @@ class MindfulnessBellScheduler {
   }
 
   static bool _isWithinQuietHours(MindfulnessBellSettings settings) {
+    return _isWithinQuietHoursAt(settings, DateTime.now());
+  }
+
+  static bool _isWithinQuietHoursAt(
+    MindfulnessBellSettings settings,
+    DateTime at,
+  ) {
     if (!settings.quietHoursEnabled) {
       return false;
     }
 
-    final now = DateTime.now();
-    final currentMinutes = now.hour * 60 + now.minute;
+    final currentMinutes = at.hour * 60 + at.minute;
 
     final start = settings.quietHoursStartMinutes;
     final end = settings.quietHoursEndMinutes;
@@ -182,15 +316,31 @@ class MindfulnessBellScheduler {
   }
 
   static Future<void> _playForegroundAudio(AlarmSound sound) async {
-    final source = switch (sound) {
-      AlarmSound.bell => AssetSource('sounds/bell-ringing-05.mp3'),
-      AlarmSound.birdSong => AssetSource('sounds/Forest_sound.mp3'),
-      AlarmSound.vibrateOnly => null,
-    };
+    if (sound == AlarmSound.vibrateOnly) return;
 
-    if (source == null) {
-      return;
+    Source? source;
+
+    if (sound == AlarmSound.bell) {
+      // Small file — still bundled as asset
+      source = AssetSource('sounds/bell-ringing-05.mp3');
+    } else if (sound == AlarmSound.birdSong) {
+      // Large file — stream from Firebase Storage / local cache
+      try {
+        final path = await AudioStreamingService()
+            .getAudioPath('sounds/Forest_sound.mp3');
+        if (path != null) {
+          source = DeviceFileSource(path);
+        } else {
+          debugPrint('Forest sound not cached and download failed');
+          return; // Notification itself is the fallback
+        }
+      } catch (e) {
+        debugPrint('Error loading bird sound: $e');
+        return;
+      }
     }
+
+    if (source == null) return;
 
     try {
       await _audioPlayer.setVolume(0.9);

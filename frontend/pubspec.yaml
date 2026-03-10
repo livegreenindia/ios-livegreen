@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.1.0+6
+version: 1.2.0+9
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -145,10 +145,8 @@ flutter:
     - assets/sounds/bell-ringing-05.mp3
     - assets/sounds/bell_complete.mp3
     - assets/sounds/bell_start.mp3
-    - assets/sounds/Breeze.mp3
-    - assets/sounds/Forest_sound.mp3
-    - assets/sounds/Rain_sound.mp3
-    - assets/sounds/Guided_Body_Scan_Meditation.mp3
+    # Large audio files are streamed from Firebase Storage (not bundled)
+    # See audio_streaming_service.dart for download & caching logic
     - assets/sounds/inhale.mp3
     - assets/sounds/exhale.mp3
     - assets/sounds/hold.mp3

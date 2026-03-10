@@ -1609,9 +1609,8 @@ ${image.conservation.isNotEmpty ? image.conservation : _parseAIResponse(image.an
                                   ),
                                 ],
                               ),
-                              if (image.location.latitude != null &&
-                                  image.location.longitude != null) ...[
-                                const SizedBox(height: 8),
+                              if (true) ...[
+                              const SizedBox(height: 8),
                                 Row(
                                   children: [
                                     Icon(Icons.location_on,
@@ -1619,7 +1618,7 @@ ${image.conservation.isNotEmpty ? image.conservation : _parseAIResponse(image.an
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        'Location: ${image.location.latitude!.toStringAsFixed(4)}, ${image.location.longitude!.toStringAsFixed(4)}',
+                                        'Location: ${image.location.latitude.toStringAsFixed(4)}, ${image.location.longitude.toStringAsFixed(4)}',
                                         style: const TextStyle(
                                           fontSize: 14,
                                           color: Colors.black,
@@ -2181,6 +2180,73 @@ class _ExplorePageState extends State<ExplorePage> {
     }
   }
 
+  Future<void> _processBirdImage(String imagePath) async {
+    setState(() {
+      isProcessingAI = true;
+      aiResult = null;
+    });
+
+    try {
+      const prompt = '''
+      You are an expert ornithologist and naturalist. Analyze this bird image and provide a structured response in this exact format:
+
+      **DESCRIPTION**: [Detailed physical description of the bird including size, plumage, coloration, beak shape, distinctive features]
+      
+      **HABITAT**: [Natural habitat, geographic range, preferred environment, typical locations found]
+      
+      **BEHAVIOR**: [Typical behaviors, feeding habits, migration patterns, nesting, calls, social patterns]
+      
+      **CONSERVATION**: [Conservation status, threats, population trends, ecological importance]
+
+      Keep each section concise but informative (2-3 sentences per section).
+      If this is not clearly a bird, analyze as the most appropriate category.
+      ''';
+
+      final imageBytes = await File(imagePath).readAsBytes();
+      final response = await _geminiModel.generateContent([
+        Content.text(prompt),
+        Content.data('image/jpeg', imageBytes),
+      ]);
+
+      final String analysis = response.text ?? "Unable to analyze image";
+
+      final sections = _parseAIResponse(analysis);
+
+      setState(() {
+        aiResult = analysis;
+        isProcessingAI = false;
+      });
+
+      final imageEntry = ImageEntry(
+        imagePath: imagePath,
+        analysis: analysis,
+        description: sections['description']!,
+        habitat: sections['habitat']!,
+        behavior: sections['behavior']!,
+        conservation: sections['conservation']!,
+        timestamp: DateTime.now(),
+        location: currentLocation != null
+            ? LatLng(currentLocation!.latitude!, currentLocation!.longitude!)
+            : LatLng(12.9716, 77.5946),
+        category: 'Bird',
+      );
+
+      GlobalCaptures.addImage(imageEntry);
+      print("Bird image entry added to GlobalCaptures");
+
+      if (mounted) {
+        setState(() {});
+      }
+
+      _showAIResultsDialog();
+    } catch (e) {
+      setState(() {
+        isProcessingAI = false;
+      });
+      _showCameraError("AI processing failed: $e");
+    }
+  }
+
   Future<void> _processPlantImage(String imagePath) async {
     setState(() {
       isProcessingAI = true;
@@ -2388,6 +2454,9 @@ class _ExplorePageState extends State<ExplorePage> {
 
       // Process the image with AI based on category
       switch (selectedCategory) {
+        case 'Bird':
+          await _processBirdImage(picture.path);
+          break;
         case 'Insect':
           await _processInsectImage(picture.path);
           break;
@@ -2417,8 +2486,7 @@ class _ExplorePageState extends State<ExplorePage> {
         // Process the image with AI based on category (birds use audio only)
         switch (selectedCategory) {
           case 'Bird':
-            _showCameraError(
-                "Birds use audio recording, not images. Please use the microphone to record bird sounds.");
+            await _processBirdImage(image.path);
             break;
           case 'Insect':
             await _processInsectImage(image.path);
@@ -2537,7 +2605,7 @@ class _ExplorePageState extends State<ExplorePage> {
               child: Column(
                 children: [
                   // Category-specific Input Interface
-                  if (selectedCategory == 'Bird') ...[
+                  if (false) ...[  // Bird now uses camera like Insect (mic interface disabled)
                     // Voice Recording Interface for Birds
                     // Microphone Button
                     GestureDetector(

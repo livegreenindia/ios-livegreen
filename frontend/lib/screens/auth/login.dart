@@ -37,27 +37,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      final hasProfile = doc.exists && doc.data()?['wellness_profile'] != null;
-      
-      // Clear old activity completions for new users
+      // clear completions for brand-new user records
       if (!doc.exists) {
         await CompletionStore.clearAll();
       }
-      
-      if (hasProfile) {
-        // User has profile, request basic location permission and go to home
-        await LocationPrefetchService.requestBasicPermission(context);
-        if (!mounted) return;
-        Navigator.pushReplacementNamed(context, AppRoutes.home);
-      } else {
-        // No profile, show onboarding
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const ProfileSelectionOnboarding(),
-          ),
-        );
-      }
+      // everyone gets sent to home directly now
+      await LocationPrefetchService.requestBasicPermission(context);
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, AppRoutes.home);
+
     } catch (e) {
       // On error, just navigate to home
       if (mounted) {

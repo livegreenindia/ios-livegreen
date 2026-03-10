@@ -9,7 +9,6 @@ import 'dart:io';
 import '../../theme/app_theme.dart';
 import '../../models/trek.dart';
 import '../../services/trek_service.dart';
-import '../../services/osm_trek_service.dart';
 import '../../services/location_tracking_service.dart';
 import '../../services/place_submission_service.dart';
 import '../../services/google_places_service.dart';
@@ -35,7 +34,6 @@ class _TrekListScreenState extends State<TrekListScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final TrekService _trekService = TrekService();
-  final OSMTrekService _osmTrekService = OSMTrekService();
   final GooglePlacesService _googlePlacesService = GooglePlacesService();
   final LocationTrackingService _locationService = LocationTrackingService();
   final PlaceSubmissionService _placeSubmissionService = PlaceSubmissionService();
@@ -45,23 +43,32 @@ class _TrekListScreenState extends State<TrekListScreen>
   // State
   List<Trek> _treks = [];
   List<Trek> _nearbyTreks = [];
-  List<Trek> _osmTreks = []; // Treks fetched from OpenStreetMap
+  List<Trek> _googleTreks = []; // Treks fetched from Google Places
   bool _isLoading = true;
   bool _isLoadingMore = false;
-  bool _isLoadingOSM = false;
+  bool _isLoadingGoogle = false;
   bool _hasMoreData = true;
   String? _error;
   TrekCategory? _selectedCategory;
   String _searchQuery = '';
   bool _isAdmin = false;
   bool _isInitialized = false; // Flag to prevent double initialization
+
+  // Pagination — increase limit on each "load more" instead of cursor
+  // (safe because getTreks does client-side filtering over limit*2 Firestore docs)
+  int _trekLimit = 20;
+
+  // Google Places per-tab cache — avoids re-fetching on every tab switch
+  final Map<int, List<Trek>> _googleTabCache = {};
+  final Map<int, DateTime> _googleCacheTime = {};
+  static const Duration _googleCacheTtl = Duration(minutes: 10);
   
   // Location state
   Position? _currentPosition;
   bool _isLocationLoading = false;
   String? _locationError;
   // Radius settings per tab (in kilometers)
-  static const double _pathsRadiusKm = 50.0; // 50km radius for trekking paths
+  static const double _pathsRadiusKm = 100.0; // 100km radius for trekking paths
   static const double _fitnessRadiusKm = 25.0; // 25km for fitness locations
   static const double _poiRadiusKm = 25.0; // 25km for POI
   
@@ -109,7 +116,6 @@ class _TrekListScreenState extends State<TrekListScreen>
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(_onTabChanged);
-    _scrollController.addListener(_onScroll);
     _initializeLocation();
     _checkAdminStatus();
   }
@@ -135,11 +141,11 @@ class _TrekListScreenState extends State<TrekListScreen>
       // Set up streaming subscription for nearby treks
       _setupNearbyTreksStream();
 
-      // Automatically fetch treks from OpenStreetMap based on location (force refresh on init)
+      // Automatically fetch treks from Google Places based on location
       try {
-        await _fetchOSMTreks(forceRefresh: true);
+        await _fetchGoogleTreks(forceRefresh: true);
       } catch (e) {
-        debugPrint('OSM fetch failed: $e');
+        debugPrint('Google Places fetch failed: $e');
       }
     } catch (e) {
       debugPrint('TrekListScreen: Location error: $e');
@@ -152,91 +158,64 @@ class _TrekListScreenState extends State<TrekListScreen>
     }
   }
 
-  /// Fetch treks from OpenStreetMap and Google Places for Trekking Paths tab
-  Future<void> _fetchOSMTreks({bool forceRefresh = false}) async {
+  /// Fetch treks from Google Places for the current tab
+  Future<void> _fetchGoogleTreks({bool forceRefresh = false}) async {
     if (_currentPosition == null) return;
-    setState(() => _isLoadingOSM = true);
+    final tab = _tabController.index;
+
+    // Return cached results if still fresh and not forced
+    if (!forceRefresh &&
+        _googleTabCache.containsKey(tab) &&
+        _googleCacheTime.containsKey(tab) &&
+        DateTime.now().difference(_googleCacheTime[tab]!) < _googleCacheTtl) {
+      debugPrint('TrekListScreen: Using cached Google Places for tab $tab');
+      if (mounted) {
+        setState(() => _googleTreks = _googleTabCache[tab]!);
+        _updateMapMarkers();
+      }
+      return;
+    }
+
+    setState(() => _isLoadingGoogle = true);
     try {
-      debugPrint('TrekListScreen: Fetching OSM data for tab  ${_tabController.index}');
-      List<Trek> osmTreks = [];
-      List<Trek> googleTreks = [];
       final lat = _currentPosition!.latitude;
       final lng = _currentPosition!.longitude;
-      switch (_tabController.index) {
+      List<Trek> googleTreks = [];
+
+      switch (tab) {
         case _tabFitness:
-          // Try Google Places first for fitness locations
-          debugPrint('TrekListScreen: Fetching fitness from Google Places...');
           googleTreks = await _googlePlacesService.fetchFitnessPlaces(
-            latitude: lat,
-            longitude: lng,
-            radiusKm: 15,
-          );
-          debugPrint('TrekListScreen: Google Places returned ${googleTreks.length} fitness locations');
-          
-          // If Google returns few or no results, fall back to OSM
-          if (googleTreks.length < 5) {
-            debugPrint('TrekListScreen: Falling back to OSM for additional fitness locations...');
-            osmTreks = await _osmTrekService.fetchFitnessLocations(
-              latitude: lat,
-              longitude: lng,
-              radiusKm: 15,
-              specificCategory: _selectedCategory,
-              forceRefresh: forceRefresh,
-            );
-            debugPrint('TrekListScreen: OSM returned ${osmTreks.length} fitness locations');
-          }
+              latitude: lat, longitude: lng);
           break;
         case _tabPOI:
-          // POI tab shows ONLY user-submitted places (approved by admin)
-          // NO Google Places API or OSM data - only Firebase data from user submissions
-          debugPrint('TrekListScreen: POI tab uses only user-submitted content (Submit Place, Import GPX, Draw Path)');
-          // osmTreks remains empty - Firebase streaming will provide user-submitted POI
+          // POI tab shows only community-approved user-submitted places — no external API
           break;
         case _tabPaths:
         default:
-          osmTreks = await _osmTrekService.fetchPathLocations(
-            latitude: lat,
-            longitude: lng,
-            radiusKm: 50,
-            specificCategory: _selectedCategory,
-            forceRefresh: forceRefresh,
-          );
-          debugPrint('TrekListScreen: Fetched ${osmTreks.length} OSM path locations');
-          // Always fetch Google Places for trekking points
           googleTreks = await _googlePlacesService.fetchTrekkingPlaces(
-            latitude: lat,
-            longitude: lng,
-            radiusKm: 50,
-          );
-          debugPrint('TrekListScreen: Fetched ${googleTreks.length} Google Places trekking points');
+              latitude: lat, longitude: lng, radiusKm: 100);
           break;
       }
-      
-      // Merge Google and OSM results, removing duplicates by id
-      final allTreks = <String, Trek>{};
-      // Add Google results first (priority)
-      for (final t in googleTreks) {
-        allTreks[t.id] = t;
+
+      debugPrint('TrekListScreen: Google Places returned ${googleTreks.length} locations for tab $tab');
+
+      // Only cache non-empty results so a transient API failure doesn't
+      // block the tab for the full TTL period
+      if (googleTreks.isNotEmpty) {
+        _googleTabCache[tab] = googleTreks;
+        _googleCacheTime[tab] = DateTime.now();
       }
-      // Add OSM results (will not overwrite Google results with same id)
-      for (final t in osmTreks) {
-        allTreks[t.id] = t;
-      }
-      final mergedTreks = allTreks.values.toList();
-      debugPrint('TrekListScreen: Total ${mergedTreks.length} locations after merge (${googleTreks.length} from Google, ${osmTreks.length} from OSM)');
-      
+
       if (mounted) {
         setState(() {
-          _osmTreks = mergedTreks;
-          _isLoadingOSM = false;
+          _googleTreks = googleTreks;
+          _isLoadingGoogle = false;
         });
         _updateMapMarkers();
       }
     } catch (e) {
-      debugPrint('Failed to fetch OSM/Google treks: $e');
-      if (mounted) {
-        setState(() => _isLoadingOSM = false);
-      }
+      debugPrint('Google Places fetch failed: $e');
+      if (mounted) setState(() => _isLoadingGoogle = false);
     }
   }
 
@@ -263,7 +242,7 @@ class _TrekListScreenState extends State<TrekListScreen>
       longitude: _currentPosition!.longitude,
       radiusKm: _searchRadiusKm,
       category: streamCategory,
-      limit: 10,
+      limit: 50,
     ).listen((treks) {
       if (mounted) {
         setState(() {
@@ -293,8 +272,8 @@ class _TrekListScreenState extends State<TrekListScreen>
       ));
     }
     
-    // Combine all treks for markers (nearby + OSM + local)
-    final allTreks = <Trek>{..._nearbyTreks, ..._osmTreks, ..._treks};
+    // Combine all treks for markers (nearby + Google + local)
+    final allTreks = <Trek>{..._nearbyTreks, ..._googleTreks, ..._treks};
     
     // Add trek markers
     for (final trek in allTreks) {
@@ -309,13 +288,12 @@ class _TrekListScreenState extends State<TrekListScreen>
       
       if (lat != null && lng != null) {
         final distance = _calculateDistanceFromUser(trek);
-        final isOSMTrek = trek.id.startsWith('osm_');
         markers.add(Marker(
           markerId: MarkerId(trek.id),
           position: LatLng(lat, lng),
           icon: BitmapDescriptor.defaultMarkerWithHue(_getMarkerHue(trek.category)),
           infoWindow: InfoWindow(
-            title: '${trek.title}${isOSMTrek ? ' 📍' : ''}',
+            title: trek.title,
             snippet: distance != null 
                 ? '${distance.toStringAsFixed(1)} km away'
                 : trek.formattedDistance,
@@ -369,10 +347,13 @@ class _TrekListScreenState extends State<TrekListScreen>
       _selectedCategory = null;
       _searchQuery = '';
       _searchController.clear();
-      _isLoading = true; // Show loading instead of clearing data
+      _isLoading = true;
+      _trekLimit = 20; // reset pagination on tab change
     });
-    // Fetch fresh OSM data for the new tab, then reload treks
-    _fetchOSMTreks().then((_) {
+    // Re-setup nearby stream for the new tab so it fetches the right category
+    _setupNearbyTreksStream();
+    // Always force-refresh so switching tabs never shows stale/empty Google results
+    _fetchGoogleTreks(forceRefresh: true).then((_) {
       if (mounted) _loadTreks();
     });
   }
@@ -420,28 +401,37 @@ class _TrekListScreenState extends State<TrekListScreen>
           longitude: _currentPosition!.longitude,
           radiusKm: _searchRadiusKm,
           category: categoryFilter,
-          limit: 10,
+          limit: 50,
         );
+
+        // For fitness tab with no specific sub-category, filter Firestore
+        // results to only show fitness-related categories (prevents paths/walks
+        // from appearing in the Fitness tab when categoryFilter is null)
+        if (_tabController.index == _tabFitness && _selectedCategory == null) {
+          nearbyTreks = nearbyTreks
+              .where((t) => t.category.isFitnessSubCategory)
+              .toList();
+        }
         
-        // Include OSM treks in nearby section (filtered by category if needed)
-        List<Trek> filteredOSMTreks = _osmTreks;
+        // Include Google Places treks in nearby section (filtered by category if needed)
+        List<Trek> filteredGoogleTreks = _googleTreks;
         if (_tabController.index == _tabFitness) {
           // For fitness tab, filter by sub-category or show all fitness
           if (_selectedCategory != null) {
-            filteredOSMTreks = _osmTreks.where((t) => t.category == _selectedCategory).toList();
+            filteredGoogleTreks = _googleTreks.where((t) => t.category == _selectedCategory).toList();
           } else {
-            filteredOSMTreks = _osmTreks.where((t) => t.category.isFitnessSubCategory).toList();
+            filteredGoogleTreks = _googleTreks.where((t) => t.category.isFitnessSubCategory).toList();
           }
         } else if (categoryFilter != null) {
-          filteredOSMTreks = _osmTreks.where((t) => t.category == categoryFilter).toList();
+          filteredGoogleTreks = _googleTreks.where((t) => t.category == categoryFilter).toList();
         }
         
-        // Merge nearby treks with OSM treks, removing duplicates
+        // Merge nearby treks with Google treks, removing duplicates
         final nearbyIds = nearbyTreks.map((t) => t.id).toSet();
-        for (final osmTrek in filteredOSMTreks) {
-          if (!nearbyIds.contains(osmTrek.id)) {
-            nearbyTreks.add(osmTrek);
-            nearbyIds.add(osmTrek.id);
+        for (final gTrek in filteredGoogleTreks) {
+          if (!nearbyIds.contains(gTrek.id)) {
+            nearbyTreks.add(gTrek);
+            nearbyIds.add(gTrek.id);
           }
         }
         
@@ -458,8 +448,15 @@ class _TrekListScreenState extends State<TrekListScreen>
         treks = await _trekService.getTreks(
           category: categoryFilter,
           searchQuery: null,
-          limit: 20,
+          limit: _trekLimit,
         );
+
+        // For fitness tab with no specific sub-category, filter background
+        // treks to only fitness categories (categoryFilter is null so getTreks
+        // returns everything — we need to narrow it down here)
+        if (_tabController.index == _tabFitness && _selectedCategory == null) {
+          treks = treks.where((t) => t.category.isFitnessSubCategory).toList();
+        }
         
         // Remove duplicates
         treks = treks.where((t) => !nearbyIds.contains(t.id)).toList();
@@ -471,19 +468,19 @@ class _TrekListScreenState extends State<TrekListScreen>
           limit: 20,
         );
         
-        // Also search in OSM treks
+        // Also search in Google Places treks
         final lowerQuery = _searchQuery.toLowerCase();
-        final matchingOSMTreks = _osmTreks.where((trek) {
+        final matchingGoogleTreks = _googleTreks.where((trek) {
           return trek.title.toLowerCase().contains(lowerQuery) ||
               trek.description.toLowerCase().contains(lowerQuery) ||
               trek.tags.any((tag) => tag.toLowerCase().contains(lowerQuery));
         }).toList();
         
-        // Add matching OSM treks that aren't duplicates
+        // Add matching Google treks that aren't duplicates
         final trekIds = treks.map((t) => t.id).toSet();
-        for (final osmTrek in matchingOSMTreks) {
-          if (!trekIds.contains(osmTrek.id)) {
-            treks.add(osmTrek);
+        for (final gTrek in matchingGoogleTreks) {
+          if (!trekIds.contains(gTrek.id)) {
+            treks.add(gTrek);
           }
         }
       } else {
@@ -494,16 +491,16 @@ class _TrekListScreenState extends State<TrekListScreen>
           limit: 20,
         );
         
-        // Add OSM treks (filtered by category if needed)
-        List<Trek> filteredOSMTreks = _osmTreks;
+        // Add Google Places treks (filtered by category if needed)
+        List<Trek> filteredGoogleTreks = _googleTreks;
         if (categoryFilter != null) {
-          filteredOSMTreks = _osmTreks.where((t) => t.category == categoryFilter).toList();
+          filteredGoogleTreks = _googleTreks.where((t) => t.category == categoryFilter).toList();
         }
         
         final trekIds = treks.map((t) => t.id).toSet();
-        for (final osmTrek in filteredOSMTreks) {
-          if (!trekIds.contains(osmTrek.id)) {
-            treks.add(osmTrek);
+        for (final gTrek in filteredGoogleTreks) {
+          if (!trekIds.contains(gTrek.id)) {
+            treks.add(gTrek);
           }
         }
       }
@@ -512,7 +509,7 @@ class _TrekListScreenState extends State<TrekListScreen>
         _nearbyTreks = nearbyTreks;
         _treks = treks;
         _isLoading = false;
-        _hasMoreData = treks.length >= 20;
+        _hasMoreData = treks.length >= _trekLimit;
       });
       
       _updateMapMarkers();
@@ -525,26 +522,38 @@ class _TrekListScreenState extends State<TrekListScreen>
   }
 
   Future<void> _loadMoreTreks() async {
-    if (_isLoadingMore || !_hasMoreData || _treks.isEmpty) return;
+    if (_isLoadingMore || !_hasMoreData) return;
 
-    setState(() => _isLoadingMore = true);
+    setState(() {
+      _isLoadingMore = true;
+      _trekLimit += 20; // expand the page window
+    });
 
     try {
-      // For pagination, we'd need to pass startAfter document
-      // Simplified version just loads more
+      TrekCategory? categoryFilter = _selectedCategory;
+      if (_tabController.index == _tabPOI) {
+        categoryFilter = TrekCategory.pointOfInterest;
+      }
+
       final moreTreks = await _trekService.getTreks(
-        category: _selectedCategory,
+        category: categoryFilter,
         searchQuery: _searchQuery.isNotEmpty ? _searchQuery : null,
-        limit: 20,
+        limit: _trekLimit,
       );
 
-      setState(() {
-        // In real implementation, append to _treks
-        _isLoadingMore = false;
-        _hasMoreData = moreTreks.length >= 20;
-      });
+      // Remove treks already shown in _nearbyTreks to avoid duplicates
+      final nearbyIds = _nearbyTreks.map((t) => t.id).toSet();
+      final newTreks = moreTreks.where((t) => !nearbyIds.contains(t.id)).toList();
+
+      if (mounted) {
+        setState(() {
+          _treks = newTreks;
+          _isLoadingMore = false;
+          _hasMoreData = moreTreks.length >= _trekLimit;
+        });
+      }
     } catch (e) {
-      setState(() => _isLoadingMore = false);
+      if (mounted) setState(() => _isLoadingMore = false);
     }
   }
 
@@ -553,6 +562,7 @@ class _TrekListScreenState extends State<TrekListScreen>
     // Debounce search
     Future.delayed(const Duration(milliseconds: 500), () {
       if (_searchQuery == value) {
+        _trekLimit = 20; // reset pagination on new search
         _loadTreks();
       }
     });
@@ -561,11 +571,12 @@ class _TrekListScreenState extends State<TrekListScreen>
   void _onCategorySelected(TrekCategory? category) {
     setState(() {
       _selectedCategory = _selectedCategory == category ? null : category;
-      _isLoading = true; // Show loading instead of clearing data
+      _isLoading = true;
+      _trekLimit = 20; // reset pagination on category change
     });
-    // Re-fetch OSM data with the new category filter
+    // Re-fetch Google Places data with the new category filter
     if (_tabController.index == _tabPaths || _tabController.index == _tabFitness) {
-      _fetchOSMTreks().then((_) {
+      _fetchGoogleTreks().then((_) {
         if (mounted) _loadTreks();
       });
     } else {
@@ -1189,10 +1200,24 @@ class _TrekListScreenState extends State<TrekListScreen>
               ),
           ];
         },
-        body: _showMapView ? _buildMapView() : RefreshIndicator(
-          onRefresh: _loadTreks,
-          child: _buildBody(),
-        ),
+        body: _showMapView
+            ? _buildMapView()
+            : NotificationListener<ScrollNotification>(
+                onNotification: (notification) {
+                  if (notification is ScrollUpdateNotification ||
+                      notification is ScrollEndNotification) {
+                    final m = notification.metrics;
+                    if (m.pixels >= m.maxScrollExtent - 300) {
+                      _loadMoreTreks();
+                    }
+                  }
+                  return false;
+                },
+                child: RefreshIndicator(
+                  onRefresh: _loadTreks,
+                  child: _buildBody(),
+                ),
+              ),
       ),
       floatingActionButton: TrekSpeedDialFAB(
         onImportGPX: _importGPX,
@@ -1298,7 +1323,7 @@ class _TrekListScreenState extends State<TrekListScreen>
       );
     }
 
-    if (_treks.isEmpty && _nearbyTreks.isEmpty && !_isLoadingOSM) {
+    if (_treks.isEmpty && _nearbyTreks.isEmpty && !_isLoadingGoogle) {
       String title;
       String subtitle;
       IconData icon;
@@ -1331,15 +1356,15 @@ class _TrekListScreenState extends State<TrekListScreen>
         subtitle: subtitle,
         icon: icon,
         onRetry: () {
-          _fetchOSMTreks(forceRefresh: true).then((_) {
+          _fetchGoogleTreks(forceRefresh: true).then((_) {
             if (mounted) _loadTreks();
           });
         },
       );
     }
 
-    // Show loading shimmer while OSM is fetching and we have no data yet
-    if (_isLoadingOSM && _treks.isEmpty && _nearbyTreks.isEmpty) {
+    // Show loading shimmer while Google Places is fetching and we have no data yet
+    if (_isLoadingGoogle && _treks.isEmpty && _nearbyTreks.isEmpty) {
       return ListView.builder(
         padding: const EdgeInsets.only(top: AppSpacing.md),
         itemCount: 5,
@@ -1348,7 +1373,6 @@ class _TrekListScreenState extends State<TrekListScreen>
     }
 
     return CustomScrollView(
-      controller: _scrollController,
       slivers: [
         // Location status banner
         if (_locationError != null && _searchQuery.isEmpty)
@@ -1356,8 +1380,8 @@ class _TrekListScreenState extends State<TrekListScreen>
             child: _buildLocationBanner(),
           ),
         
-        // Loading OSM treks indicator
-        if (_isLoadingOSM && _searchQuery.isEmpty)
+        // Loading Google Places indicator
+        if (_isLoadingGoogle && _searchQuery.isEmpty)
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -1391,7 +1415,7 @@ class _TrekListScreenState extends State<TrekListScreen>
             child: _buildSectionHeader(
               title: 'Discovered Near You',
               subtitle: _currentPosition != null
-                  ? 'Trails within ${_searchRadiusKm.toInt()} km • ${_nearbyTreks.where((t) => t.id.startsWith('osm_')).length} from OpenStreetMap'
+                  ? 'Trails within ${_searchRadiusKm.toInt()} km'
                   : null,
               icon: Icons.explore_outlined,
             ),
@@ -1412,7 +1436,7 @@ class _TrekListScreenState extends State<TrekListScreen>
               childCount: _nearbyTreks.length,
             ),
           ),
-        ] else if (_currentPosition != null && _searchQuery.isEmpty && _treks.isNotEmpty && !_isLoadingOSM) ...[
+        ] else if (_currentPosition != null && _searchQuery.isEmpty && _treks.isNotEmpty && !_isLoadingGoogle) ...[
           // Show message when location is available but no nearby treks
           SliverToBoxAdapter(
             child: Padding(

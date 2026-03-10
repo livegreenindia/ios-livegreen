@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:audioplayers/audioplayers.dart';
+import '../../services/audio_streaming_service.dart';
 
 class MeditationScreen extends StatefulWidget {
   const MeditationScreen({super.key});
@@ -28,6 +29,8 @@ class _MeditationScreenState extends State<MeditationScreen> {
   final AudioPlayer _ambiancePlayer = AudioPlayer();
   final AudioPlayer _voicePlayer = AudioPlayer();
   final AudioPlayer _bellPlayer = AudioPlayer();
+  final AudioStreamingService _audioService = AudioStreamingService();
+  bool _isLoadingAudio = false;
 
   // Available ambiance sounds
   final List<Map<String, dynamic>> _ambianceSounds = [
@@ -147,14 +150,29 @@ class _MeditationScreenState extends State<MeditationScreen> {
     );
 
     try {
+      setState(() => _isLoadingAudio = true);
+
+      // Download from Firebase Storage (cached after first download)
+      final localPath =
+          await _audioService.getAudioPath(sound['asset'] as String);
+
+      if (!mounted) return;
+      setState(() => _isLoadingAudio = false);
+
+      if (localPath == null) {
+        _showSnackBar(
+            'Could not load audio. Check your internet connection.');
+        _pauseSession();
+        return;
+      }
+
       await _ambiancePlayer.setVolume(_volume);
       await _ambiancePlayer.setReleaseMode(ReleaseMode.loop);
-
-      // Play from bundled assets
-      await _ambiancePlayer.play(AssetSource(sound['asset']));
+      await _ambiancePlayer.play(DeviceFileSource(localPath));
     } catch (e) {
       debugPrint('Error playing ambiance: $e');
       if (mounted) {
+        setState(() => _isLoadingAudio = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error playing audio: $e')),
         );
@@ -166,15 +184,29 @@ class _MeditationScreenState extends State<MeditationScreen> {
     if (_selectedVoice == null) return;
 
     try {
+      setState(() => _isLoadingAudio = true);
+
+      // Download from Firebase Storage (cached after first download)
+      final localPath = await _audioService
+          .getAudioPath('sounds/Guided_Body_Scan_Meditation.mp3');
+
+      if (!mounted) return;
+      setState(() => _isLoadingAudio = false);
+
+      if (localPath == null) {
+        _showSnackBar(
+            'Could not load audio. Check your internet connection.');
+        _pauseSession();
+        return;
+      }
+
       await _voicePlayer.setVolume(_volume);
       await _voicePlayer.setReleaseMode(ReleaseMode.loop);
-
-      // Play from bundled assets
-      await _voicePlayer
-          .play(AssetSource('sounds/Guided_Body_Scan_Meditation.mp3'));
+      await _voicePlayer.play(DeviceFileSource(localPath));
     } catch (e) {
       debugPrint('Error playing voice: $e');
       if (mounted) {
+        setState(() => _isLoadingAudio = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error playing audio: $e')),
         );
@@ -406,7 +438,31 @@ class _MeditationScreenState extends State<MeditationScreen> {
               const SizedBox(height: 40),
 
               // Start/Pause Button
-              _isSessionActive ? _buildPauseButton() : _buildStartButton(),
+              if (_isLoadingAudio)
+                Column(
+                  children: [
+                    const SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF4ADE80),
+                        strokeWidth: 3,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Loading audio...',
+                      style: GoogleFonts.poppins(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                )
+              else
+                _isSessionActive
+                    ? _buildPauseButton()
+                    : _buildStartButton(),
 
               const SizedBox(height: 24),
             ],

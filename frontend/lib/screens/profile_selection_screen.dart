@@ -129,7 +129,7 @@ class _ProfileSelectionScreenState extends State<ProfileSelectionScreen> with Si
                       children: [
                         _buildProfileCard(
                           isDark: isDark,
-                          profile: UserProfile.working,
+                          profile: UserProfile.work,
                           icon: Icons.business_center,
                           gradient: const LinearGradient(
                             colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
@@ -138,7 +138,7 @@ class _ProfileSelectionScreenState extends State<ProfileSelectionScreen> with Si
                         const SizedBox(height: 16),
                         _buildProfileCard(
                           isDark: isDark,
-                          profile: UserProfile.student,
+                          profile: UserProfile.academic,
                           icon: Icons.school,
                           gradient: const LinearGradient(
                             colors: [Color(0xFF9C27B0), Color(0xFF7B1FA2)],
@@ -151,15 +151,6 @@ class _ProfileSelectionScreenState extends State<ProfileSelectionScreen> with Si
                           icon: Icons.home,
                           gradient: const LinearGradient(
                             colors: [Color(0xFFFF9800), Color(0xFFF57C00)],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        _buildProfileCard(
-                          isDark: isDark,
-                          profile: UserProfile.retired,
-                          icon: Icons.elderly,
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF4CAF50), Color(0xFF388E3C)],
                           ),
                         ),
                         const SizedBox(height: 30),

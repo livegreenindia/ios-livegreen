@@ -52,7 +52,7 @@ class AppRoutes {
       case wellnessSchedule:
         final profile = settings.arguments as String?;
         return MaterialPageRoute(
-          builder: (_) => WellnessScheduleScreen(profile: profile ?? 'Working'),
+          builder: (_) => WellnessScheduleScreen(profile: profile ?? 'Work'),
         );
       case privacyPolicy:
         return MaterialPageRoute(builder: (_) => const PrivacyPolicyScreen());

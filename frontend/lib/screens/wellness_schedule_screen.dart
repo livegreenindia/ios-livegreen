@@ -599,17 +599,16 @@ class _WellnessScheduleScreenState extends State<WellnessScheduleScreen> with Si
   }
 
   IconData _getProfileIcon() {
+    // all profiles use work icon for now; academic uses school too
     switch (widget.profile) {
-      case 'Working':
+      case 'Work':
         return Icons.business_center;
-      case 'Student':
+      case 'Academic':
         return Icons.school;
       case 'Housewife':
         return Icons.home;
-      case 'Retired':
-        return Icons.elderly;
       default:
-        return Icons.person;
+        return Icons.business_center;
     }
   }
 

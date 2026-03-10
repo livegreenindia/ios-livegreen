@@ -1,0 +1,2 @@
+# Baseline profile for LiveGreen app
+# This file intentionally left minimal - Flutter handles startup optimization
