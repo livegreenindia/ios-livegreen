@@ -47,6 +47,7 @@ Future<void> main() async {
 
   // Initialize mindfulness bell local reminder scheduler
   await MindfulnessBellScheduler.initialize();
+  await MindfulnessBellScheduler.restoreReminderIfEnabled();
 
   // Location permission is now requested when needed (not at startup)
 

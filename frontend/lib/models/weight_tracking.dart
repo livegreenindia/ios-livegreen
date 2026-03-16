@@ -48,11 +48,17 @@ class WeightEntry {
     required String activityLevel,
     required String goal,
   }) {
+    final normalizedGoal = goal.toLowerCase();
+    final isLoseGoal =
+        normalizedGoal == 'lose' || normalizedGoal.contains('lose');
+    final isGainGoal =
+        normalizedGoal == 'gain' || normalizedGoal.contains('gain');
+
     // Calculate safe weight change rate based on medical guidelines
     double safeWeeklyChange;
     double safeMonthlyChange;
-    
-    if (goal.toLowerCase() == 'lose') {
+
+    if (isLoseGoal) {
       // Weight loss calculations
       if (currentBMI > 30) {
         // Obese: Can lose 1kg per week safely
@@ -71,7 +77,7 @@ class WeightEntry {
         safeWeeklyChange = 0.25;
         safeMonthlyChange = 1.0;
       }
-    } else if (goal.toLowerCase() == 'gain') {
+    } else if (isGainGoal) {
       // Weight gain calculations (safer, slower process)
       if (currentBMI < 18.5) {
         // Underweight: Can gain 0.5kg per week safely
@@ -120,15 +126,23 @@ class WeightEntry {
     if (weightDifference.abs() < 0.1) {
       weeksToTarget = 0; // Already at target
     } else {
-      weeksToTarget = (weightDifference.abs() / safeWeeklyChange.abs()).ceil();
+      final weeklyRate = safeWeeklyChange.abs();
+      if (!weeklyRate.isFinite || weeklyRate <= 0) {
+        weeksToTarget = 0;
+      } else {
+        final rawWeeks = weightDifference.abs() / weeklyRate;
+        weeksToTarget = rawWeeks.isFinite ? rawWeeks.ceil() : 0;
+      }
     }
 
     // Calculate target date
     DateTime targetDate = DateTime.now().add(Duration(days: weeksToTarget * 7));
 
     // Calculate calorie adjustment
-    final dailyCalorieAdjustment = (safeWeeklyChange.abs() * 7 * 7700).round(); // ~7700 cal per kg
-    final calorieDirection = goal.toLowerCase() == 'lose' ? 'deficit' : 'surplus';
+    final dailyCalorieAdjustment =
+        (safeWeeklyChange.abs() * 7 * 7700).round(); // ~7700 cal per kg
+    final calorieDirection =
+        isLoseGoal ? 'deficit' : (isGainGoal ? 'surplus' : 'maintain');
 
     return {
       'safeWeeklyChange': safeWeeklyChange,
@@ -139,7 +153,7 @@ class WeightEntry {
       'recommendedCalorieAdjustment': dailyCalorieAdjustment,
       'calorieDirection': calorieDirection,
       'minTargetWeight': targetWeight,
-      'maxHealthyWeight': goal.toLowerCase() == 'lose' ? targetWeight : targetWeight * 1.05,
+      'maxHealthyWeight': isLoseGoal ? targetWeight : targetWeight * 1.05,
     };
   }
 }
@@ -177,7 +191,7 @@ class WeeklyWeightSummary {
   double get weeklyGain => weightChange > 0 ? weightChange : 0.0;
   double get weeklyBMIReduction => bmiChange < 0 ? bmiChange.abs() : 0.0;
   double get weeklyBMIGain => bmiChange > 0 ? bmiChange : 0.0;
-  
+
   String get weeklyTrend {
     if (weightChange.abs() < 0.1) return 'Maintained';
     if (weightChange < 0) return 'Losing';
@@ -195,7 +209,8 @@ class WeeklyWeightSummary {
     final initialDifference = (entries.first.weight - targetWeight).abs();
     final currentDifference = (endWeight - targetWeight).abs();
     if (initialDifference <= 0) return 100.0;
-    return ((initialDifference - currentDifference) / initialDifference * 100).clamp(0.0, 100.0);
+    return ((initialDifference - currentDifference) / initialDifference * 100)
+        .clamp(0.0, 100.0);
   }
 
   // Weight loss estimation based on current weekly trend

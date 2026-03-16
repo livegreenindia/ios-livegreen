@@ -2193,21 +2193,11 @@ class _ActivityPageState extends State<ActivityPage> {
       if (profileJson != null) {
         try {
           final profileData = jsonDecode(profileJson);
-          profile = UserProfile(
-            weight: (profileData['weight'] as num).toDouble(),
-            height: (profileData['height'] as num).toDouble(),
-            age: profileData['age'] as int,
-            gender: profileData['gender'] as String,
-            activityLevel: profileData['activityLevel'] as String,
-            goal: profileData['goal'] as String,
-            state: profileData['state'] as String? ?? 'Delhi',
-            healthConditions: List<String>.from(
-              (profileData['healthConditions'] as List?) ?? [],
-            ),
-            healthGoals: Map<String, bool>.from(
-              (profileData['healthGoals'] as Map?) ?? {},
-            ),
-          );
+          if (profileData is Map<String, dynamic>) {
+            profile = UserProfile.fromJson(profileData);
+          } else {
+            print('Invalid user_profile payload shape');
+          }
         } catch (e) {
           print('Error parsing user profile: $e');
         }
