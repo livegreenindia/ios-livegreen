@@ -679,6 +679,13 @@ class TrekService {
       ).toList();
     }
     
+    // Determine actual radius based on category
+    double actualRadiusKm = radiusKm;
+    if (category == TrekCategory.natureWalk) {
+      // Jogging/walking paths should have a max 10 km radius
+      actualRadiusKm = 10.0;
+    }
+    
     // Calculate distances and filter by radius
     final treksWithDistance = <MapEntry<Trek, double>>[];
     for (final trek in treks) {
@@ -696,7 +703,7 @@ class TrekService {
         final distance = GeoUtils.calculateDistance(
           latitude, longitude, trekLat, trekLng,
         );
-        if (distance <= radiusKm) {
+        if (distance <= actualRadiusKm) {
           treksWithDistance.add(MapEntry(trek, distance));
         }
       }
@@ -739,6 +746,13 @@ class TrekService {
       ).toList();
     }
     
+    // Determine actual radius based on category
+    double actualRadiusKm = radiusKm;
+    if (category == TrekCategory.natureWalk) {
+      // Jogging/walking paths should have a max 10 km radius
+      actualRadiusKm = 10.0;
+    }
+    
     final nearbyTreks = <MapEntry<Trek, double>>[];
     for (final trek in treks) {
       double? trekLat, trekLng;
@@ -756,7 +770,7 @@ class TrekService {
           latitude, longitude, trekLat, trekLng,
         );
         debugPrint('Trek "${trek.title}" is ${distance.toStringAsFixed(1)}km away');
-        if (distance <= radiusKm) {
+        if (distance <= actualRadiusKm) {
           nearbyTreks.add(MapEntry(trek, distance));
         }
       } else {
@@ -764,7 +778,7 @@ class TrekService {
       }
     }
     
-    debugPrint('Fallback: Found ${nearbyTreks.length} nearby treks within ${radiusKm}km');
+    debugPrint('Fallback: Found ${nearbyTreks.length} nearby treks within ${actualRadiusKm}km');
     nearbyTreks.sort((a, b) => a.value.compareTo(b.value));
     return nearbyTreks.take(limit).map((e) => e.key).toList();
   }

@@ -199,6 +199,13 @@ class GooglePlacesService {
         TrekCategory.natureWalk, 'nature',
         radiusMeters: r,
       ),
+      // Cycling paths and bike routes
+      _fetchText(
+        'cycling route bike path cycle track bicycle trail greenway',
+        latitude, longitude,
+        TrekCategory.cyclePath, 'cycling',
+        radiusMeters: r,
+      ),
     ]);
 
     final seen = <String>{};
