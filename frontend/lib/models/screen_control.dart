@@ -287,15 +287,19 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            child: const Text(
+              'Decline',
+              style: TextStyle(color: Colors.redAccent, fontSize: 16),
+            ),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF388E3C),
               foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
-            child: const Text('I Understand, Continue'),
+            child: const Text('Accept', style: TextStyle(fontSize: 16)),
           ),
         ],
       ),

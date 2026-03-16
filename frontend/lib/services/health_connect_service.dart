@@ -52,21 +52,17 @@ class HealthConnectService {
   /// Health data types to request
   static List<HealthDataType> get _healthDataTypes {
     if (Platform.isAndroid) {
-      // Health Connect supported data types on Android
+      // Health Connect supported data types on Android (minimum scope)
       return [
         HealthDataType.STEPS,
-        HealthDataType.HEART_RATE,
         HealthDataType.TOTAL_CALORIES_BURNED,
-        HealthDataType.SLEEP_SESSION,
       ];
     } else {
       // Apple Health data types on iOS
       return [
         HealthDataType.STEPS,
-        HealthDataType.HEART_RATE,
         HealthDataType.ACTIVE_ENERGY_BURNED,
         HealthDataType.DISTANCE_WALKING_RUNNING,
-        HealthDataType.SLEEP_IN_BED,
       ];
     }
   }
@@ -244,10 +240,8 @@ class HealthConnectService {
     _notifyProgress('Reading steps...', 0.4, 2, 5);
     
     int? steps;
-    int? heartRate;
     double? calories;
     double? distance;
-    int? sleepMinutes;
 
     try {
       // Get all health data points
@@ -269,11 +263,6 @@ class HealthConnectService {
               steps = (steps ?? 0) + value.numericValue.toInt();
             }
             break;
-          case HealthDataType.HEART_RATE:
-            if (value is NumericHealthValue) {
-              heartRate = value.numericValue.toInt();
-            }
-            break;
           case HealthDataType.ACTIVE_ENERGY_BURNED:
           case HealthDataType.TOTAL_CALORIES_BURNED:
             if (value is NumericHealthValue) {
@@ -286,14 +275,6 @@ class HealthConnectService {
               distance = (distance ?? 0) + value.numericValue.toDouble();
             }
             break;
-          case HealthDataType.SLEEP_ASLEEP:
-          case HealthDataType.SLEEP_AWAKE:
-          case HealthDataType.SLEEP_IN_BED:
-          case HealthDataType.SLEEP_SESSION:
-            if (value is NumericHealthValue) {
-              sleepMinutes = (sleepMinutes ?? 0) + value.numericValue.toInt();
-            }
-            break;
           default:
             break;
         }
@@ -304,10 +285,8 @@ class HealthConnectService {
       final healthResult = HealthData(
         timestamp: DateTime.now(),
         steps: steps,
-        heartRate: heartRate,
         calories: calories?.toInt(),
         distance: distance,
-        sleepMinutes: sleepMinutes,
         source: Platform.isAndroid ? 'Health Connect' : 'Apple Health',
       );
 
@@ -360,10 +339,8 @@ class HealthConnectService {
     
     await docRef.set({
       'steps': data.steps,
-      'heartRate': data.heartRate,
       'calories': data.calories,
       'distance': data.distance,
-      'sleepMinutes': data.sleepMinutes,
       'source': data.source,
       'syncedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -386,19 +363,15 @@ class HealthConnectService {
 class HealthData {
   final DateTime timestamp;
   final int? steps;
-  final int? heartRate;
   final int? calories;
   final double? distance;
-  final int? sleepMinutes;
   final String source;
 
   HealthData({
     required this.timestamp,
     this.steps,
-    this.heartRate,
     this.calories,
     this.distance,
-    this.sleepMinutes,
     required this.source,
   });
 
@@ -407,10 +380,8 @@ class HealthData {
     return {
       'timestamp': timestamp.toIso8601String(),
       'steps': steps,
-      'heartRate': heartRate,
       'calories': calories,
       'distance': distance,
-      'sleepMinutes': sleepMinutes,
       'source': source,
     };
   }
@@ -418,16 +389,8 @@ class HealthData {
   /// Check if any health data is available
   bool get hasData {
     return steps != null ||
-        heartRate != null ||
         calories != null ||
-        distance != null ||
-        sleepMinutes != null;
-  }
-
-  /// Get sleep hours from minutes
-  double? get sleepHours {
-    if (sleepMinutes == null) return null;
-    return sleepMinutes! / 60.0;
+        distance != null;
   }
 
   /// Get distance in kilometers
