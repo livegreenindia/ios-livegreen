@@ -397,13 +397,6 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
             value: '${_healthData!.steps}',
             color: Colors.blue,
           ),
-        if (_healthData?.heartRate != null)
-          _buildDataCard(
-            icon: Icons.favorite,
-            label: 'Heart Rate',
-            value: '${_healthData!.heartRate} bpm',
-            color: Colors.red,
-          ),
         if (_healthData?.calories != null)
           _buildDataCard(
             icon: Icons.local_fire_department,
@@ -418,13 +411,7 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
             value: '${_healthData!.distanceKm!.toStringAsFixed(2)} km',
             color: Colors.green,
           ),
-        if (_healthData?.sleepHours != null)
-          _buildDataCard(
-            icon: Icons.bedtime,
-            label: 'Sleep',
-            value: '${_healthData!.sleepHours!.toStringAsFixed(1)} hrs',
-            color: Colors.purple,
-          ),
+
       ],
     );
   }

@@ -16,7 +16,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final String _apiKey = '';
+  final String _apiKey = 'AIzaSyDwKl2hKm2ljW9Hm41EvTNkc809JPWRBlM';
   List<String> _scannedFoods = [];
   Map<String, double> _totalNutrients = {
     'calories': 0,

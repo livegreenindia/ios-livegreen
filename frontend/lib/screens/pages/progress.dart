@@ -2169,15 +2169,6 @@ class _ProgressPageState extends State<ProgressPage>
                       Colors.blue,
                     ),
                   ),
-                if (_healthConnectData!.heartRate != null)
-                  Expanded(
-                    child: _buildHealthMetricTile(
-                      Icons.favorite,
-                      'Heart Rate',
-                      '${_healthConnectData!.heartRate} bpm',
-                      Colors.red,
-                    ),
-                  ),
               ],
             ),
             const SizedBox(height: 12),
@@ -2190,15 +2181,6 @@ class _ProgressPageState extends State<ProgressPage>
                       'Calories',
                       '${_healthConnectData!.calories} kcal',
                       Colors.orange,
-                    ),
-                  ),
-                if (_healthConnectData!.sleepHours != null)
-                  Expanded(
-                    child: _buildHealthMetricTile(
-                      Icons.bedtime,
-                      'Sleep',
-                      '${_healthConnectData!.sleepHours!.toStringAsFixed(1)} hrs',
-                      Colors.purple,
                     ),
                   ),
               ],
@@ -3818,14 +3800,8 @@ class _ProgressPageState extends State<ProgressPage>
     if (data.steps != null) {
       chartData.add({'label': 'Steps', 'value': data.steps!.toDouble() / 100, 'icon': Icons.directions_walk, 'color': Colors.blue, 'unit': ''});
     }
-    if (data.heartRate != null) {
-      chartData.add({'label': 'Heart\nRate', 'value': data.heartRate!.toDouble(), 'icon': Icons.favorite, 'color': Colors.red, 'unit': 'bpm'});
-    }
     if (data.calories != null) {
       chartData.add({'label': 'Calories', 'value': data.calories!.toDouble() / 10, 'icon': Icons.local_fire_department, 'color': Colors.orange, 'unit': ''});
-    }
-    if (data.sleepHours != null) {
-      chartData.add({'label': 'Sleep', 'value': data.sleepHours! * 10, 'icon': Icons.bedtime, 'color': Colors.purple, 'unit': 'hrs'});
     }
 
     if (chartData.isEmpty) return const SizedBox();
@@ -3874,12 +3850,8 @@ class _ProgressPageState extends State<ProgressPage>
                       String valueStr = '';
                       if (item['label'] == 'Steps') {
                         valueStr = '${data.steps}';
-                      } else if (item['label'] == 'Heart\nRate') {
-                        valueStr = '${data.heartRate} bpm';
                       } else if (item['label'] == 'Calories') {
                         valueStr = '${data.calories} kcal';
-                      } else if (item['label'] == 'Sleep') {
-                        valueStr = '${data.sleepHours!.toStringAsFixed(1)} hrs';
                       }
                       return BarTooltipItem(
                         valueStr,
