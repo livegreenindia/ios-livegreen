@@ -11,13 +11,11 @@ import 'mindfulness_bell_settings_service.dart';
 
 class MindfulnessBellScheduler {
   // Use a versioned channel id so sound config updates apply on existing installs.
-  static const String _audioChannelId = 'mindfulness_bell_audio_v2';
+  static const String _audioChannelIdBell = 'mindfulness_bell_audio_bell_v3';
+  static const String _audioChannelIdBird = 'mindfulness_bell_audio_bird_v3';
   static const String _vibrateChannelId = 'mindfulness_bell_vibrate';
   static const int _notificationIdBase = 67000;
   static const int _maxScheduledReminders = 96;
-  // Temporary testing override: schedule reminders every 30 seconds in debug.
-  static final Duration? _debugIntervalOverride =
-      kDebugMode ? const Duration(seconds: 30) : null;
 
   static final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
@@ -58,12 +56,26 @@ class MindfulnessBellScheduler {
     }
 
     await androidImplementation?.createNotificationChannel(
-      AndroidNotificationChannel(
-        _audioChannelId,
-        'Mindfulness Bell Audio',
-        description: 'Mindfulness reminders with sound and vibration',
+      const AndroidNotificationChannel(
+        _audioChannelIdBell,
+        'Mindfulness Bell (Bell Sound)',
+        description: 'Mindfulness reminders with bell sound',
         importance: Importance.high,
         playSound: true,
+        sound: RawResourceAndroidNotificationSound('bell_ringing'),
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+        enableVibration: true,
+      ),
+    );
+
+    await androidImplementation?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        _audioChannelIdBird,
+        'Mindfulness Bell (Bird Song)',
+        description: 'Mindfulness reminders with bird song',
+        importance: Importance.high,
+        playSound: true,
+        sound: RawResourceAndroidNotificationSound('forest_sound'),
         audioAttributesUsage: AudioAttributesUsage.alarm,
         enableVibration: true,
       ),
@@ -96,12 +108,11 @@ class MindfulnessBellScheduler {
     await cancelRecurringReminder();
 
     final scheduleAnchor = tz.TZDateTime.now(tz.local);
-    final reminderInterval =
-        _debugIntervalOverride ?? settings.interval.duration;
+    final reminderInterval = settings.interval.duration;
     final alwaysVibrateOnly = settings.sound == AlarmSound.vibrateOnly;
     var scheduleMode = await _resolveScheduleMode();
 
-    if (kDebugMode && _debugIntervalOverride != null) {
+    if (kDebugMode && reminderInterval.inSeconds <= 60) {
       debugPrint(
         'Mindfulness Bell test mode enabled: scheduling every ${reminderInterval.inSeconds} seconds.',
       );
@@ -199,16 +210,21 @@ class MindfulnessBellScheduler {
       scheduledAt,
       NotificationDetails(
         android: AndroidNotificationDetails(
-          vibrateOnly ? _vibrateChannelId : _audioChannelId,
+          vibrateOnly
+              ? _vibrateChannelId
+              : (sound == AlarmSound.bell ? _audioChannelIdBell : _audioChannelIdBird),
           vibrateOnly
               ? 'Mindfulness Bell Vibrate Only'
-              : 'Mindfulness Bell Audio',
+              : (sound == AlarmSound.bell ? 'Mindfulness Bell (Bell)' : 'Mindfulness Bell (Bird)'),
           channelDescription: vibrateOnly
               ? 'Mindfulness reminders with vibration only'
               : 'Mindfulness reminders with sound and vibration',
           importance: Importance.high,
           priority: Priority.high,
           playSound: !vibrateOnly,
+          sound: vibrateOnly
+              ? null
+              : RawResourceAndroidNotificationSound(sound == AlarmSound.bell ? 'bell_ringing' : 'forest_sound'),
           audioAttributesUsage: AudioAttributesUsage.alarm,
           enableVibration: true,
           category: AndroidNotificationCategory.reminder,
@@ -256,14 +272,21 @@ class MindfulnessBellScheduler {
         shouldMute || isQuietHours || settings.sound == AlarmSound.vibrateOnly;
 
     final androidDetails = AndroidNotificationDetails(
-      vibrateOnly ? _vibrateChannelId : _audioChannelId,
-      vibrateOnly ? 'Mindfulness Bell Vibrate Only' : 'Mindfulness Bell Audio',
+      vibrateOnly
+          ? _vibrateChannelId
+          : (settings.sound == AlarmSound.bell ? _audioChannelIdBell : _audioChannelIdBird),
+      vibrateOnly
+          ? 'Mindfulness Bell Vibrate Only'
+          : (settings.sound == AlarmSound.bell ? 'Mindfulness Bell (Bell)' : 'Mindfulness Bell (Bird)'),
       channelDescription: vibrateOnly
           ? 'Mindfulness reminders with vibration only'
           : 'Mindfulness reminders with sound and vibration',
       importance: Importance.high,
       priority: Priority.high,
       playSound: !vibrateOnly,
+      sound: vibrateOnly
+          ? null
+          : RawResourceAndroidNotificationSound(settings.sound == AlarmSound.bell ? 'bell_ringing' : 'forest_sound'),
       enableVibration: true,
       category: AndroidNotificationCategory.reminder,
       ticker: 'Mindfulness Bell Reminder',
@@ -343,6 +366,7 @@ class MindfulnessBellScheduler {
     if (source == null) return;
 
     try {
+      await _audioPlayer.stop(); // Stop any currently playing audio so it can replay
       await _audioPlayer.setVolume(0.9);
       await _audioPlayer.play(source);
       if (sound == AlarmSound.birdSong) {

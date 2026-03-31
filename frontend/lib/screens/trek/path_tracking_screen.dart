@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -6,11 +7,15 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import '../../theme/app_theme.dart';
 import '../../models/trek.dart';
 import '../../services/trek_service.dart';
 import '../../services/location_tracking_service.dart';
 import '../../services/routing_service.dart';
+import '../../services/share_image_service.dart';
+import '../../widgets/trek/share_card_widget.dart';
 
 /// Path Tracking Screen for recording treks
 class PathTrackingScreen extends StatefulWidget {
@@ -1208,11 +1213,30 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
   final _titleController = TextEditingController();
   final _notesController = TextEditingController();
 
+  // Share Card variables
+  String? _selectedImagePath;
+  final GlobalKey _shareCardKey = GlobalKey();
+  final ImagePicker _picker = ImagePicker();
+  bool _isGeneratingImage = false;
+
   @override
   void dispose() {
     _titleController.dispose();
     _notesController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final pickedFile = await _picker.pickImage(source: source);
+      if (pickedFile != null) {
+        setState(() {
+          _selectedImagePath = pickedFile.path;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error picking image: $e");
+    }
   }
 
   String _formatDuration(Duration duration) {
@@ -1233,6 +1257,12 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final titleString = _titleController.text.isEmpty
+        ? 'Morning Trek'
+        : _titleController.text;
+    final dateString = DateFormat('MMM d, y • h:mm a').format(DateTime.now());
+    final paceString = ((widget.distance / 1000) / max(widget.duration.inSeconds / 3600, 0.001)).toStringAsFixed(1) + ' km/h';
+
     return AlertDialog(
       title: const Text('Save Track'),
       content: SingleChildScrollView(
@@ -1291,6 +1321,7 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
                 hintText: 'Morning walk, etc.',
                 border: OutlineInputBorder(),
               ),
+              onChanged: (_) => setState(() {}), // Refresh preview
             ),
             const SizedBox(height: AppSpacing.md),
             TextField(
@@ -1300,7 +1331,79 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
                 hintText: 'Any notes about this track...',
                 border: OutlineInputBorder(),
               ),
-              maxLines: 3,
+              maxLines: 2,
+            ),
+            
+            const SizedBox(height: AppSpacing.lg),
+            const Divider(),
+            const SizedBox(height: AppSpacing.sm),
+            
+            Text(
+              'Share Preview',
+              style: GoogleFonts.manrope(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            
+            // Share Card Preview
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 280), // Dialog visual preview size
+                child: FittedBox(
+                  fit: BoxFit.contain,
+                  child: RepaintBoundary(
+                    key: _shareCardKey,
+                    child: SizedBox(
+                      width: 800, // Fixed logical width for high-resolution layout and scaled fonts
+                      child: ShareCardWidget(
+                        boundaryKey: GlobalKey(), // the RepaintBoundary is now wrapped outside
+                        title: titleString,
+                        distance: _formatDistance(widget.distance),
+                        duration: _formatDuration(widget.duration),
+                        speed: paceString,
+                        elevation: '0 m', // Can be parameterized if needed
+                        date: dateString,
+                        backgroundImagePath: _selectedImagePath,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: AppSpacing.md),
+            
+            // Photo actions
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => _pickImage(ImageSource.camera),
+                  icon: const Icon(Icons.camera_alt, size: 18),
+                  label: const Text('Take Photo'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                OutlinedButton.icon(
+                  onPressed: () => _pickImage(ImageSource.gallery),
+                  icon: const Icon(Icons.photo_library, size: 18),
+                  label: const Text('Gallery'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                ),
+                if (_selectedImagePath != null) ...[
+                  const SizedBox(width: AppSpacing.xs),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.grey),
+                    onPressed: () => setState(() => _selectedImagePath = null),
+                  ),
+                ],
+              ],
             ),
           ],
         ),
@@ -1311,27 +1414,41 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
           child: const Text('Cancel'),
         ),
         TextButton.icon(
-          onPressed: () {
+          onPressed: _isGeneratingImage ? null : () async {
+            setState(() {
+              _isGeneratingImage = true;
+            });
+            
             final title = _titleController.text.isEmpty
                 ? 'Track ${DateTime.now().toString().substring(0, 16)}'
                 : _titleController.text;
             final notes = _notesController.text;
             
-            // Share trek details
-            Share.share(
-              '🏃 Trek Completed! 🏃\n\n'
-              '📍 $title\n\n'
-              '📏 Distance: ${_formatDistance(widget.distance)}\n'
-              '⏱️ Duration: ${_formatDuration(widget.duration)}\n'
-              '⚡ Avg Speed: ${((widget.distance / 1000) / (widget.duration.inSeconds / 3600)).toStringAsFixed(2)} km/h\n'
-              '${notes.isNotEmpty ? "\n📝 Notes: $notes\n" : ""}'
-              '\nDownload LiveGreen to track your treks!\n'
-              'https://play.google.com/store/apps/details?id=com.livegreen.app',
+            final textMessage = '🏃 Trek Completed! 🏃\n\n'
+                '📍 $title\n\n'
+                '📏 Distance: ${_formatDistance(widget.distance)}\n'
+                '⏱️ Duration: ${_formatDuration(widget.duration)}\n'
+                '⚡ Avg Speed: ${((widget.distance / 1000) / max(widget.duration.inSeconds / 3600, 0.001)).toStringAsFixed(2)} km/h\n'
+                '${notes.isNotEmpty ? "\n📝 Notes: $notes\n" : ""}'
+                '\nDownload LiveGreen to track your treks!\n'
+                'https://play.google.com/store/apps/details?id=com.livegreen.app';
+                
+            await ShareImageService.captureAndShare(
+              boundaryKey: _shareCardKey,
               subject: title,
+              text: textMessage,
             );
+            
+            if (mounted) {
+              setState(() {
+                _isGeneratingImage = false;
+              });
+            }
           },
-          icon: const Icon(Icons.share),
-          label: const Text('Share'),
+          icon: _isGeneratingImage 
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.share),
+          label: _isGeneratingImage ? const Text('Sharing...') : const Text('Share'),
         ),
         FilledButton(
           onPressed: () {

@@ -72,7 +72,7 @@ class MindfulnessBellSettings {
   Map<String, dynamic> toWorkInputData() {
     return {
       'sound': sound.name,
-      'intervalMinutes': interval.duration.inMinutes,
+      'intervalSeconds': interval.duration.inSeconds,
       'muteWhenFlightMode': muteWhenFlightMode,
       'muteWhenSilentMode': muteWhenSilentMode,
       'muteWhenDoNotDisturb': muteWhenDoNotDisturb,
@@ -100,11 +100,14 @@ class MindfulnessBellSettings {
 
   factory MindfulnessBellSettings.fromWorkInputData(Map<String, dynamic> map) {
     final soundKey = map['sound'] as String?;
-    final minutes = map['intervalMinutes'] as int? ?? 15;
+    final seconds = map['intervalSeconds'] as int? ??
+        ((map['intervalMinutes'] != null)
+            ? (map['intervalMinutes'] as int) * 60
+            : 900);
 
     return MindfulnessBellSettings(
       sound: AlarmSoundX.fromName(soundKey),
-      interval: ReminderIntervalX.fromMinutes(minutes),
+      interval: ReminderIntervalX.fromSeconds(seconds),
       muteWhenFlightMode: map['muteWhenFlightMode'] as bool? ?? true,
       muteWhenSilentMode: map['muteWhenSilentMode'] as bool? ?? true,
       muteWhenDoNotDisturb: map['muteWhenDoNotDisturb'] as bool? ?? true,
@@ -138,6 +141,8 @@ extension AlarmSoundX on AlarmSound {
 }
 
 enum ReminderInterval {
+  // seconds30,
+  // minute1,
   minutes15,
   minutes30,
   minutes45,
@@ -148,6 +153,10 @@ enum ReminderInterval {
 extension ReminderIntervalX on ReminderInterval {
   Duration get duration {
     switch (this) {
+      // case ReminderInterval.seconds30:
+      //   return const Duration(seconds: 30);
+      // case ReminderInterval.minute1:
+      //   return const Duration(minutes: 1);
       case ReminderInterval.minutes15:
         return const Duration(minutes: 15);
       case ReminderInterval.minutes30:
@@ -163,6 +172,10 @@ extension ReminderIntervalX on ReminderInterval {
 
   String get label {
     switch (this) {
+      // case ReminderInterval.seconds30:
+      //   return '30 seconds (Test)';
+      // case ReminderInterval.minute1:
+      //   return '1 minute';
       case ReminderInterval.minutes15:
         return '15 minutes';
       case ReminderInterval.minutes30:
@@ -183,20 +196,14 @@ extension ReminderIntervalX on ReminderInterval {
     );
   }
 
-  static ReminderInterval fromMinutes(int minutes) {
-    switch (minutes) {
-      case 15:
-        return ReminderInterval.minutes15;
-      case 30:
-        return ReminderInterval.minutes30;
-      case 45:
-        return ReminderInterval.minutes45;
-      case 60:
-        return ReminderInterval.hour1;
-      case 120:
-        return ReminderInterval.hours2;
-      default:
-        return ReminderInterval.minutes15;
-    }
+  static ReminderInterval fromSeconds(int seconds) {
+    //if (seconds == 30) return ReminderInterval.seconds30;
+    //if (seconds == 60) return ReminderInterval.minute1;
+    if (seconds == 900) return ReminderInterval.minutes15;
+    if (seconds == 1800) return ReminderInterval.minutes30;
+    if (seconds == 2700) return ReminderInterval.minutes45;
+    if (seconds == 3600) return ReminderInterval.hour1;
+    if (seconds == 7200) return ReminderInterval.hours2;
+    return ReminderInterval.minutes15;
   }
 }

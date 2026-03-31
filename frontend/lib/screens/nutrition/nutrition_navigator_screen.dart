@@ -109,7 +109,8 @@ class _NutritionNavigatorScreenState extends State<NutritionNavigatorScreen> {
       case 0: // Camera
         return CameraPage(
           cameras: widget.cameras,
-          apiKey: 'AIzaSyCEU91Yy27b0VqBw95THdGpVlm-Oqu6eT0',
+          // apiKey: 'AIzaSyCEU91Yy27b0VqBw95THdGpVlm-Oqu6eT0',
+          apiKey: 'AIzaSyA25iyorUrEJUHKMMe4yyifwCHX-x2PiaI',
           userProfile: _profile,
           onFoodAnalyzed: _onFoodAnalyzed,
           onClose: () {

@@ -119,28 +119,6 @@ class _MindfulnessBellReminderScreenState
     }
   }
 
-  Future<void> _triggerNow() async {
-    setState(() {
-      _saving = true;
-    });
-
-    try {
-      await MindfulnessBellScheduler.triggerAlarm(_settings);
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reminder triggered now.')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-        });
-      }
-    }
-  }
-
   Widget _buildTimePicker(
     BuildContext context,
     String label,
@@ -440,19 +418,6 @@ class _MindfulnessBellReminderScreenState
                     isExpanded: true,
                     isLoading: _saving,
                     onPressed: _reminderRunning ? _stopReminder : null,
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  OutlinedButton.icon(
-                    onPressed: _saving ? null : _triggerNow,
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 48),
-                      side: BorderSide(
-                        color:
-                            isDark ? AppColors.primaryLight : AppColors.primary,
-                      ),
-                    ),
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Trigger Now'),
                   ),
                 ],
               ),
