@@ -1426,9 +1426,6 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
             
             final textMessage = '🏃 Trek Completed! 🏃\n\n'
                 '📍 $title\n\n'
-                '📏 Distance: ${_formatDistance(widget.distance)}\n'
-                '⏱️ Duration: ${_formatDuration(widget.duration)}\n'
-                '⚡ Avg Speed: ${((widget.distance / 1000) / max(widget.duration.inSeconds / 3600, 0.001)).toStringAsFixed(2)} km/h\n'
                 '${notes.isNotEmpty ? "\n📝 Notes: $notes\n" : ""}'
                 '\nDownload LiveGreen to track your treks!\n'
                 'https://play.google.com/store/apps/details?id=com.livegreen.app';
