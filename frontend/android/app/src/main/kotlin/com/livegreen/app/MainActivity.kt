@@ -152,35 +152,61 @@ class MainActivity : FlutterActivity() {
 
 						val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
 						val pm = packageManager
-
-						// identifiers to classify social media (only major platforms)
-						val identifiers = listOf(
-							"youtube", "instagram", "facebook", "snapchat"
-						)
-
-						// Use a map to aggregate usage by package
+						val identifiers = listOf("youtube", "instagram", "facebook", "snapchat")
 						val usageMap = mutableMapOf<String, Long>()
 						
-						// Try queryAndAggregateUsageStats first (more accurate)
-						val aggregate = usageStatsManager.queryAndAggregateUsageStats(start, end)
-						if (aggregate != null && aggregate.isNotEmpty()) {
-							for ((pkg, stat) in aggregate) {
-								val timeMillis = try { stat.totalTimeInForeground } catch (_: Exception) { 0L }
-								if (timeMillis > 0) {
-									usageMap[pkg] = (usageMap[pkg] ?: 0L) + timeMillis
+						if (range == "daily") {
+							// Use queryEvents for precision on daily views to avoid UTC bucket overlap causing >24h
+							val events = usageStatsManager.queryEvents(start, end)
+							val event = android.app.usage.UsageEvents.Event()
+							val startTimes = mutableMapOf<String, Long>()
+							
+							while (events.hasNextEvent()) {
+								events.getNextEvent(event)
+								val pkg = event.packageName
+								
+								if (event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED) {
+									startTimes[pkg] = event.timeStamp
+								} else if (event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED || 
+										   event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED) {
+									val startTime = startTimes[pkg]
+									if (startTime != null) {
+										val duration = event.timeStamp - startTime
+										if (duration > 0) {
+											usageMap[pkg] = (usageMap[pkg] ?: 0L) + duration
+										}
+										startTimes.remove(pkg)
+									}
 								}
 							}
-						}
-						
-						// If aggregate is empty, fallback to queryUsageStats
-						if (usageMap.isEmpty()) {
-							val statsList = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, start, end)
-							if (statsList != null) {
-								for (stat in statsList) {
-									val pkg = stat.packageName
+							// Add ongoing sessions
+							for ((pkg, startTime) in startTimes) {
+								val duration = end - startTime
+								if (duration > 0) {
+									usageMap[pkg] = (usageMap[pkg] ?: 0L) + duration
+								}
+							}
+						} else {
+							// Use queryAndAggregateUsageStats for broader ranges (weekly/monthly/yearly)
+							val aggregate = usageStatsManager.queryAndAggregateUsageStats(start, end)
+							if (aggregate != null && aggregate.isNotEmpty()) {
+								for ((pkg, stat) in aggregate) {
 									val timeMillis = try { stat.totalTimeInForeground } catch (_: Exception) { 0L }
 									if (timeMillis > 0) {
 										usageMap[pkg] = (usageMap[pkg] ?: 0L) + timeMillis
+									}
+								}
+							}
+							
+							if (usageMap.isEmpty()) {
+								val statsList = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, start, end)
+								if (statsList != null) {
+									for (stat in statsList) {
+										val pkg = stat.packageName
+										val timeMillis = try { stat.totalTimeInForeground } catch (_: Exception) { 0L }
+										if (timeMillis > 0) {
+											usageMap[pkg] = (usageMap[pkg] ?: 0L) + timeMillis
+										}
 									}
 								}
 							}

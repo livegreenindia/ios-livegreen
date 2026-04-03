@@ -2944,30 +2944,72 @@ class _ProgressPageState extends State<ProgressPage>
                   ],
                 ),
               ),
-              // Time range badge
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: primaryColor.withAlpha(20),
+              // Time range toggle
+              PopupMenuButton<String>(
+                initialValue: _range,
+                onSelected: (String newValue) {
+                  if (_range != newValue) {
+                    setState(() {
+                      _range = newValue;
+                    });
+                    _fetchUsage();
+                    _fetchSeries();
+                    _loadActivityProgress();
+                  }
+                },
+                shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(
-                  _range == 'daily'
-                      ? 'Today'
-                      : _range == 'weekly'
-                      ? '7 Days'
-                      : _range == 'monthly'
-                      ? 'Month'
-                      : 'Year',
-                  style: GoogleFonts.manrope(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: primaryColor,
+                color: isDark ? Colors.grey[850] : Colors.white,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: primaryColor.withAlpha(25),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _range == 'daily'
+                            ? 'Today'
+                            : _range == 'weekly'
+                            ? 'Week'
+                            : _range == 'monthly'
+                            ? 'Month'
+                            : 'Year',
+                        style: GoogleFonts.manrope(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: primaryColor,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.keyboard_arrow_down, size: 14, color: primaryColor),
+                    ],
                   ),
                 ),
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'daily',
+                    child: Text('Today', style: GoogleFonts.manrope(fontSize: 13, color: isDark ? Colors.white : Colors.black87)),
+                  ),
+                  PopupMenuItem(
+                    value: 'weekly',
+                    child: Text('Week', style: GoogleFonts.manrope(fontSize: 13, color: isDark ? Colors.white : Colors.black87)),
+                  ),
+                  PopupMenuItem(
+                    value: 'monthly',
+                    child: Text('Month', style: GoogleFonts.manrope(fontSize: 13, color: isDark ? Colors.white : Colors.black87)),
+                  ),
+                  PopupMenuItem(
+                    value: 'yearly',
+                    child: Text('Year', style: GoogleFonts.manrope(fontSize: 13, color: isDark ? Colors.white : Colors.black87)),
+                  ),
+                ],
               ),
             ],
           ),
@@ -3226,10 +3268,10 @@ class _ProgressPageState extends State<ProgressPage>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Total Social Media Time',
+                              _range == 'daily' ? 'Total Social Media Time' : 'Average Daily Time for $_range',
                               style: GoogleFonts.manrope(
                                 fontSize: 12,
-                                color: Colors.grey[700],
+                                color: Colors.grey[100],
                               ),
                             ),
                             Text(
@@ -3260,23 +3302,42 @@ class _ProgressPageState extends State<ProgressPage>
 
   String _formatTotalUsage() {
     if (_socialMediaApps.isEmpty) return '0m';
-    final totalMinutes = _socialMediaApps.fold<double>(
+    double totalMinutes = _socialMediaApps.fold<double>(
       0,
       (total, app) => total + ((app['minutes'] as num?)?.toDouble() ?? 0),
     );
+    
+    if (_range == 'weekly') {
+      totalMinutes /= 7;
+    } else if (_range == 'monthly') {
+      totalMinutes /= 30;
+    } else if (_range == 'yearly') {
+      totalMinutes /= 365;
+    }
+
     if (totalMinutes >= 60) {
-      final hours = (totalMinutes / 60).floor();
-      final mins = (totalMinutes % 60).round();
+      final totalRounded = totalMinutes.round();
+      final hours = totalRounded ~/ 60;
+      final mins = totalRounded % 60;
       return '${hours}h ${mins}m';
     }
     return '${totalMinutes.round()}m';
   }
 
   Widget _buildUsageIndicator() {
-    final totalMinutes = _socialMediaApps.fold<double>(
+    double totalMinutes = _socialMediaApps.fold<double>(
       0,
       (total, app) => total + ((app['minutes'] as num?)?.toDouble() ?? 0),
     );
+    
+    if (_range == 'weekly') {
+      totalMinutes /= 7;
+    } else if (_range == 'monthly') {
+      totalMinutes /= 30;
+    } else if (_range == 'yearly') {
+      totalMinutes /= 365;
+    }
+
     Color color;
     IconData icon;
     String label;
@@ -3321,7 +3382,16 @@ class _ProgressPageState extends State<ProgressPage>
 
   Widget _buildAppUsageItem(Map<String, dynamic> app, bool isDark) {
     final appName = app['appName'] as String? ?? 'Unknown App';
-    final minutes = (app['minutes'] as num?)?.toDouble() ?? 0.0;
+    double minutes = (app['minutes'] as num?)?.toDouble() ?? 0.0;
+    
+    if (_range == 'weekly') {
+      minutes /= 7;
+    } else if (_range == 'monthly') {
+      minutes /= 30;
+    } else if (_range == 'yearly') {
+      minutes /= 365;
+    }
+    
     final hours = (minutes / 60.0);
 
     // Get app-specific icon and color (only for allowed apps)
@@ -3657,6 +3727,14 @@ class _ProgressPageState extends State<ProgressPage>
     // Limit to top 5 apps for better visibility
     final topApps = _socialMediaApps.take(5).toList();
     
+    double getAvgMins(Map<String, dynamic> app) {
+      double mins = (app['minutes'] as num?)?.toDouble() ?? 0.0;
+      if (_range == 'weekly') return mins / 7;
+      if (_range == 'monthly') return mins / 30;
+      if (_range == 'yearly') return mins / 365;
+      return mins;
+    }
+    
     return Container(
       height: 280,
       padding: const EdgeInsets.all(16),
@@ -3680,7 +3758,7 @@ class _ProgressPageState extends State<ProgressPage>
           ),
           const SizedBox(height: 4),
           Text(
-            '24-hour period (12 AM - 11:59 PM)',
+            _range == 'daily' ? '24-hour period (12 AM - 11:59 PM)' : 'Average Daily Time for $_range',
             style: GoogleFonts.manrope(
               fontSize: 11,
               color: Colors.grey[600],
@@ -3691,16 +3769,17 @@ class _ProgressPageState extends State<ProgressPage>
             child: BarChart(
               BarChartData(
                 alignment: BarChartAlignment.spaceAround,
-                maxY: topApps.isEmpty ? 5 : (topApps.map((app) => (app['minutes'] as num?)?.toDouble() ?? 0).reduce((a, b) => a > b ? a : b) / 60) * 1.2,
+                maxY: topApps.isEmpty ? 5 : (topApps.map((app) => getAvgMins(app)).reduce((a, b) => a > b ? a : b) / 60) * 1.2,
                 barTouchData: BarTouchData(
                   touchTooltipData: BarTouchTooltipData(
                     tooltipRoundedRadius: 8,
                     getTooltipColor: (group) => Colors.orange.shade700,
                     getTooltipItem: (group, groupIndex, rod, rodIndex) {
                       final app = topApps[group.x.toInt()];
-                      final minutes = (app['minutes'] as num?)?.toDouble() ?? 0;
-                      final hours = (minutes / 60).floor();
-                      final mins = (minutes % 60).round();
+                      final minutes = getAvgMins(app);
+                      final totalRounded = minutes.round();
+                      final hours = totalRounded ~/ 60;
+                      final mins = totalRounded % 60;
                       return BarTooltipItem(
                         '${app['appName']}\n${hours}h ${mins}m',
                         GoogleFonts.manrope(
@@ -3760,7 +3839,7 @@ class _ProgressPageState extends State<ProgressPage>
                 gridData: const FlGridData(show: false),
                 borderData: FlBorderData(show: false),
                 barGroups: List.generate(topApps.length, (index) {
-                  final minutes = (topApps[index]['minutes'] as num?)?.toDouble() ?? 0;
+                  final minutes = getAvgMins(topApps[index]);
                   final hours = minutes / 60;
                   return BarChartGroupData(
                     x: index,
