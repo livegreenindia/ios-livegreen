@@ -2978,9 +2978,7 @@ class _ProgressPageState extends State<ProgressPage>
                             ? 'Today'
                             : _range == 'weekly'
                             ? 'Week'
-                            : _range == 'monthly'
-                            ? 'Month'
-                            : 'Year',
+                            : 'Month',
                         style: GoogleFonts.manrope(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -3004,10 +3002,6 @@ class _ProgressPageState extends State<ProgressPage>
                   PopupMenuItem(
                     value: 'monthly',
                     child: Text('Month', style: GoogleFonts.manrope(fontSize: 13, color: isDark ? Colors.white : Colors.black87)),
-                  ),
-                  PopupMenuItem(
-                    value: 'yearly',
-                    child: Text('Year', style: GoogleFonts.manrope(fontSize: 13, color: isDark ? Colors.white : Colors.black87)),
                   ),
                 ],
               ),
