@@ -54,7 +54,8 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
   @override
   void initState() {
     super.initState();
-    debugPrint('PathTrackingScreen: trek=${widget.trek?.title}, routePoints=${widget.trek?.routePoints.length}');
+    debugPrint(
+        'PathTrackingScreen: trek=${widget.trek?.title}, routePoints=${widget.trek?.routePoints.length}');
     WidgetsBinding.instance.addObserver(this);
     _initializeLocation(); // This will fetch the route after location is ready
   }
@@ -97,7 +98,7 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
             16,
           ),
         );
-        
+
         // NOW fetch the route after we have the current position
         // Always fetch navigation route for better path display
         if (widget.trek != null) {
@@ -117,27 +118,30 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
   /// Fetch the actual route between current location and trek destination
   Future<void> _fetchTrekRoute() async {
     if (widget.trek == null || _currentPosition == null) return;
-    
+
     try {
       debugPrint('=== ROUTING: Starting route fetch ===');
-      debugPrint('Current location: ${_currentPosition!.latitude}, ${_currentPosition!.longitude}');
+      debugPrint(
+          'Current location: ${_currentPosition!.latitude}, ${_currentPosition!.longitude}');
       debugPrint('Trek: ${widget.trek!.title}');
-      
+
       final startPoint = GeoPoint(
         latitude: _currentPosition!.latitude,
         longitude: _currentPosition!.longitude,
       );
-      
+
       // Use trek's start point as destination (or calculate a good destination)
       GeoPoint? endPoint;
       if (widget.trek!.startPoint != null) {
         endPoint = widget.trek!.startPoint;
-        debugPrint('Using startPoint as destination: ${endPoint!.latitude}, ${endPoint.longitude}');
+        debugPrint(
+            'Using startPoint as destination: ${endPoint!.latitude}, ${endPoint.longitude}');
       } else if (widget.trek!.location != null) {
         endPoint = widget.trek!.location!.geopoint;
-        debugPrint('Using location as destination: ${endPoint.latitude}, ${endPoint.longitude}');
+        debugPrint(
+            'Using location as destination: ${endPoint.latitude}, ${endPoint.longitude}');
       }
-      
+
       if (endPoint == null) {
         debugPrint('=== ROUTING: No destination point available ===');
         _trekWithRoute = widget.trek;
@@ -146,9 +150,11 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
 
       // Fetch the route
       debugPrint('=== ROUTING: Calling routing service ===');
-      final routePoints = await _routingService.getRouteFromPoints(startPoint, endPoint);
-      
-      debugPrint('=== ROUTING: Route fetched with ${routePoints.length} points ===');
+      final routePoints =
+          await _routingService.getRouteFromPoints(startPoint, endPoint);
+
+      debugPrint(
+          '=== ROUTING: Route fetched with ${routePoints.length} points ===');
 
       if (mounted) {
         setState(() {
@@ -205,7 +211,7 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
     // Show prominent disclosure for background location (required by Google Play)
     final confirmed = await _showBackgroundLocationDisclosure();
     if (!confirmed) return;
-    
+
     try {
       await _locationService.startRecording();
 
@@ -318,6 +324,7 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
 
     final result = await showDialog<Map<String, String>?>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => _SaveTrackDialog(
         distance: trackData.distance,
         duration: trackData.duration,
@@ -348,7 +355,12 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
         }
       }
     } else {
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        setState(() {
+          _isRecording = false;
+          _isPaused = false;
+        });
+      }
     }
   }
 
@@ -400,7 +412,10 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
             SizedBox(height: 16),
             Text(
               'A notification will show your recording status. You can stop recording at any time.',
-              style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: Colors.grey),
+              style: TextStyle(
+                  fontSize: 13,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey),
             ),
           ],
         ),
@@ -515,16 +530,17 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
 
     // Use trek with fetched route, or original trek
     final trek = _trekWithRoute ?? widget.trek;
-    
-    debugPrint('=== POLYLINES: Building polylines, trek=${trek?.title}, _trekWithRoute=${_trekWithRoute?.title} ===');
-    
+
+    debugPrint(
+        '=== POLYLINES: Building polylines, trek=${trek?.title}, _trekWithRoute=${_trekWithRoute?.title} ===');
+
     // Show the planned navigation route (blue line)
     // Skip drawing if it's just a straight line (2 points or less) as it's not helpful
     if (trek != null && trek.routePoints.length > 2) {
-      final points = trek.routePoints
-          .map((p) => LatLng(p.latitude, p.longitude))
-          .toList();
-      debugPrint('=== POLYLINES: Trek has ${points.length} route points, creating polyline ===');
+      final points =
+          trek.routePoints.map((p) => LatLng(p.latitude, p.longitude)).toList();
+      debugPrint(
+          '=== POLYLINES: Trek has ${points.length} route points, creating polyline ===');
       polylines.add(Polyline(
         polylineId: const PolylineId('trek_route'),
         points: points,
@@ -535,7 +551,8 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
 
     // Recorded path - Bold green (your actual path while recording)
     if (_recordedPath.isNotEmpty && _recordedPath.length > 1) {
-      debugPrint('=== POLYLINES: Adding recorded path with ${_recordedPath.length} points ===');
+      debugPrint(
+          '=== POLYLINES: Adding recorded path with ${_recordedPath.length} points ===');
       polylines.add(Polyline(
         polylineId: const PolylineId('recorded_path'),
         points: _recordedPath,
@@ -561,7 +578,8 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
     if (_currentPosition != null) {
       markers.add(Marker(
         markerId: const MarkerId('user'),
-        position: LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+        position:
+            LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
         infoWindow: const InfoWindow(title: 'Your Location'),
       ));
@@ -575,7 +593,8 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
         infoWindow: InfoWindow(
           title: '🟢 Start: ${trek.title}',
-          snippet: '${trek.startPoint!.latitude.toStringAsFixed(4)}, ${trek.startPoint!.longitude.toStringAsFixed(4)}',
+          snippet:
+              '${trek.startPoint!.latitude.toStringAsFixed(4)}, ${trek.startPoint!.longitude.toStringAsFixed(4)}',
         ),
       ));
     }
@@ -588,7 +607,8 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
         infoWindow: InfoWindow(
           title: '🔴 End Point',
-          snippet: '${trek.endPoint!.latitude.toStringAsFixed(4)}, ${trek.endPoint!.longitude.toStringAsFixed(4)}',
+          snippet:
+              '${trek.endPoint!.latitude.toStringAsFixed(4)}, ${trek.endPoint!.longitude.toStringAsFixed(4)}',
         ),
       ));
     }
@@ -645,7 +665,8 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.location_off, color: Colors.white, size: 64),
+                      const Icon(Icons.location_off,
+                          color: Colors.white, size: 64),
                       const SizedBox(height: AppSpacing.lg),
                       Text(
                         'Location Error',
@@ -755,7 +776,8 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
     final initialPosition = _currentPosition != null
         ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
         : widget.trek?.startPoint != null
-            ? LatLng(widget.trek!.startPoint!.latitude, widget.trek!.startPoint!.longitude)
+            ? LatLng(widget.trek!.startPoint!.latitude,
+                widget.trek!.startPoint!.longitude)
             : const LatLng(20.5937, 78.9629);
 
     return GoogleMap(
@@ -776,7 +798,9 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
         _mapController = controller;
         // Fit the entire route in view when trek is loaded
         final trek = _trekWithRoute ?? widget.trek;
-        if (trek != null && trek.routePoints.isNotEmpty && trek.routePoints.length > 1) {
+        if (trek != null &&
+            trek.routePoints.isNotEmpty &&
+            trek.routePoints.length > 1) {
           Future.delayed(const Duration(milliseconds: 300), () {
             final bounds = _getRouteBounds();
             if (bounds != null && mounted) {
@@ -894,9 +918,9 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
                     child: Text(
                       'Follow the suggested route',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.primary,
-                      ),
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary,
+                          ),
                     ),
                   ),
                 ],
@@ -951,7 +975,8 @@ class _PathTrackingScreenState extends State<PathTrackingScreen>
       ),
       decoration: BoxDecoration(
         color: colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.xxl)),
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(AppRadius.xxl)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
@@ -1257,14 +1282,19 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final titleString = _titleController.text.isEmpty
-        ? 'Morning Trek'
-        : _titleController.text;
+    final titleString =
+        _titleController.text.isEmpty ? 'Morning Trek' : _titleController.text;
     final dateString = DateFormat('MMM d, y • h:mm a').format(DateTime.now());
-    final paceString = ((widget.distance / 1000) / max(widget.duration.inSeconds / 3600, 0.001)).toStringAsFixed(1) + ' km/h';
+    final paceString = ((widget.distance / 1000) /
+                max(widget.duration.inSeconds / 3600, 0.001))
+            .toStringAsFixed(1) +
+        ' km/h';
 
     return AlertDialog(
       title: const Text('Save Track'),
+      titlePadding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1272,7 +1302,7 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
           children: [
             // Stats summary
             Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: AppColors.primary.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(AppRadius.md),
@@ -1286,7 +1316,7 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
                         _formatDistance(widget.distance),
                         style: GoogleFonts.manrope(
                           fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                          fontSize: 15,
                         ),
                       ),
                       Text(
@@ -1301,7 +1331,7 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
                         _formatDuration(widget.duration),
                         style: GoogleFonts.manrope(
                           fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                          fontSize: 15,
                         ),
                       ),
                       Text(
@@ -1313,58 +1343,69 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
                 ],
               ),
             ),
-            const SizedBox(height: AppSpacing.lg),
+            const SizedBox(height: 12),
             TextField(
               controller: _titleController,
               decoration: const InputDecoration(
                 labelText: 'Title (optional)',
                 hintText: 'Morning walk, etc.',
                 border: OutlineInputBorder(),
+                isDense: true,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               ),
               onChanged: (_) => setState(() {}), // Refresh preview
             ),
-            const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: 8),
             TextField(
               controller: _notesController,
               decoration: const InputDecoration(
                 labelText: 'Notes (optional)',
                 hintText: 'Any notes about this track...',
                 border: OutlineInputBorder(),
+                isDense: true,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               ),
-              maxLines: 2,
+              maxLines: 1, // Changed from 2 to 1 to save vertical space
             ),
-            
-            const SizedBox(height: AppSpacing.lg),
-            const Divider(),
-            const SizedBox(height: AppSpacing.sm),
-            
+
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+
             Text(
               'Share Preview',
               style: GoogleFonts.manrope(
-                fontSize: 16,
+                fontSize: 14,
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: AppSpacing.md),
-            
+            const SizedBox(height: 8),
+
             // Share Card Preview
             Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 280), // Dialog visual preview size
+                constraints: const BoxConstraints(
+                    maxWidth: 250,
+                    maxHeight: 150), // Added max height constraint
                 child: FittedBox(
                   fit: BoxFit.contain,
                   child: RepaintBoundary(
                     key: _shareCardKey,
                     child: SizedBox(
-                      width: 800, // Fixed logical width for high-resolution layout and scaled fonts
+                      width:
+                          800, // Fixed logical width for high-resolution layout and scaled fonts
                       child: ShareCardWidget(
-                        boundaryKey: GlobalKey(), // the RepaintBoundary is now wrapped outside
+                        boundaryKey:
+                            GlobalKey(), // the RepaintBoundary is now wrapped outside
                         title: titleString,
                         distance: _formatDistance(widget.distance),
                         duration: _formatDuration(widget.duration),
                         speed: paceString,
                         elevation: '0 m', // Can be parameterized if needed
                         date: dateString,
+                        notes: _notesController.text,
                         backgroundImagePath: _selectedImagePath,
                       ),
                     ),
@@ -1372,34 +1413,41 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
                 ),
               ),
             ),
-            
-            const SizedBox(height: AppSpacing.md),
-            
+
+            const SizedBox(height: 12),
+
             // Photo actions
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 FilledButton.icon(
                   onPressed: () => _pickImage(ImageSource.camera),
-                  icon: const Icon(Icons.camera_alt, size: 18),
-                  label: const Text('Take Photo'),
+                  icon: const Icon(Icons.camera_alt, size: 16),
+                  label:
+                      const Text('Take Photo', style: TextStyle(fontSize: 12)),
                   style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    minimumSize: const Size(0, 36),
                   ),
                 ),
-                const SizedBox(width: AppSpacing.sm),
+                const SizedBox(width: 8),
                 OutlinedButton.icon(
                   onPressed: () => _pickImage(ImageSource.gallery),
-                  icon: const Icon(Icons.photo_library, size: 18),
-                  label: const Text('Gallery'),
+                  icon: const Icon(Icons.photo_library, size: 16),
+                  label: const Text('Gallery', style: TextStyle(fontSize: 12)),
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    minimumSize: const Size(0, 36),
                   ),
                 ),
                 if (_selectedImagePath != null) ...[
-                  const SizedBox(width: AppSpacing.xs),
+                  const SizedBox(width: 4),
                   IconButton(
-                    icon: const Icon(Icons.close, color: Colors.grey),
+                    icon: const Icon(Icons.close, color: Colors.grey, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
                     onPressed: () => setState(() => _selectedImagePath = null),
                   ),
                 ],
@@ -1408,44 +1456,50 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
           ],
         ),
       ),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
         TextButton.icon(
-          onPressed: _isGeneratingImage ? null : () async {
-            setState(() {
-              _isGeneratingImage = true;
-            });
-            
-            final title = _titleController.text.isEmpty
-                ? 'Track ${DateTime.now().toString().substring(0, 16)}'
-                : _titleController.text;
-            final notes = _notesController.text;
-            
-            final textMessage = '🏃 Trek Completed! 🏃\n\n'
-                '📍 $title\n\n'
-                '${notes.isNotEmpty ? "\n📝 Notes: $notes\n" : ""}'
-                '\nDownload LiveGreen to track your treks!\n'
-                'https://play.google.com/store/apps/details?id=com.livegreen.app';
-                
-            await ShareImageService.captureAndShare(
-              boundaryKey: _shareCardKey,
-              subject: title,
-              text: textMessage,
-            );
-            
-            if (mounted) {
-              setState(() {
-                _isGeneratingImage = false;
-              });
-            }
-          },
-          icon: _isGeneratingImage 
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+          onPressed: _isGeneratingImage
+              ? null
+              : () async {
+                  setState(() {
+                    _isGeneratingImage = true;
+                  });
+
+                  final title = _titleController.text.isEmpty
+                      ? 'Track ${DateTime.now().toString().substring(0, 16)}'
+                      : _titleController.text;
+                  final notes = _notesController.text;
+
+                  final textMessage =
+                      '\nDownload LiveGreen to track your treks!\n'
+                      'https://play.google.com/store/apps/details?id=com.livegreen.app';
+
+                  await ShareImageService.captureAndShare(
+                    boundaryKey: _shareCardKey,
+                    subject: title,
+                    text: textMessage,
+                  );
+
+                  if (mounted) {
+                    setState(() {
+                      _isGeneratingImage = false;
+                    });
+                  }
+                },
+          icon: _isGeneratingImage
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(Icons.share),
-          label: _isGeneratingImage ? const Text('Sharing...') : const Text('Share'),
+          label: _isGeneratingImage
+              ? const Text('Sharing...')
+              : const Text('Share'),
         ),
         FilledButton(
           onPressed: () {
@@ -1462,6 +1516,7 @@ class _SaveTrackDialogState extends State<_SaveTrackDialog> {
     );
   }
 }
+
 /// Legend item widget for map legend display
 class _LegendItem extends StatelessWidget {
   final String? emoji;

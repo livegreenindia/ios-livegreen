@@ -11,6 +11,7 @@ class ShareCardWidget extends StatelessWidget {
   final String speed;
   final String elevation;
   final String date;
+  final String? notes;
   final String? backgroundImagePath;
 
   const ShareCardWidget({
@@ -22,13 +23,14 @@ class ShareCardWidget extends StatelessWidget {
     required this.speed,
     required this.elevation,
     required this.date,
+    this.notes,
     this.backgroundImagePath,
   });
 
   @override
   Widget build(BuildContext context) {
     return AspectRatio(
-      aspectRatio: 1.5, // 3:2 landscape aspect ratio as requested
+      aspectRatio: 1.25, // 5:4 landscape aspect ratio to comfortably fit the notes field
       child: Container(
         decoration: const BoxDecoration(
           color: AppColors.backgroundDark, // fallback
@@ -108,8 +110,39 @@ class ShareCardWidget extends StatelessWidget {
                       color: Colors.white70,
                     ),
                   ),
+                  if (notes != null && notes!.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.edit_note, color: Colors.white70, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              notes!,
+                              style: GoogleFonts.manrope(
+                                fontSize: 20,
+                                fontWeight: FontWeight.normal,
+                                color: Colors.white,
+                                fontStyle: FontStyle.italic,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 16),
                   
                   // Stats Grid
                   Row(
@@ -119,7 +152,7 @@ class ShareCardWidget extends StatelessWidget {
                       _buildStatItem('Duration', duration, Icons.timer),
                     ],
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -127,27 +160,27 @@ class ShareCardWidget extends StatelessWidget {
                       _buildStatItem('Pace', speed, Icons.speed),
                     ],
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
                   
                   // Logo at the bottom right
                   Align(
                     alignment: Alignment.bottomRight,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: Colors.white.withOpacity(0.3)),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.eco, color: AppColors.primaryLight, size: 24),
-                          const SizedBox(width: 8),
+                          const Icon(Icons.eco, color: AppColors.primaryLight, size: 48),
+                          const SizedBox(width: 12),
                           Text(
                             'LiveGreen',
                             style: GoogleFonts.manrope(
-                              fontSize: 20,
+                              fontSize: 40,
                               fontWeight: FontWeight.bold,
                               color: Colors.white,
                             ),

@@ -299,7 +299,11 @@ class _CameraPageState extends State<CameraPage> {
                         SizedBox(height: 8),
                         Text(
                           _nutritionInfo,
-                          style: TextStyle(fontSize: 12, height: 1.4),
+                          style: TextStyle(
+                            fontSize: 12, 
+                            height: 1.4,
+                            color: Colors.black87,
+                          ),
                         ),
                       ],
                     ),
