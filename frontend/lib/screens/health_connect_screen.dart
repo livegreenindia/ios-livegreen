@@ -1,7 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../services/health_connect_service.dart';
+import '../services/subscription_service.dart';
+import '../widgets/subscription_gate.dart';
 import '../theme/app_theme.dart';
 
 /// Health Connect integration screen
@@ -145,7 +148,20 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
         ),
         elevation: 0,
       ),
-      body: SingleChildScrollView(
+      body: Consumer<SubscriptionService>(
+        builder: (context, subs, child) {
+          final content = child!;
+          if (!subs.isLoading && subs.shouldGate) {
+            return SubscriptionGate(
+              featureName: 'Health Connect',
+              featureIcon: Icons.watch_outlined,
+              minGatedHeight: 500,
+              child: content,
+            );
+          }
+          return content;
+        },
+        child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -378,6 +394,7 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
           ],
         ),
       ),
+    ),
     );
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../models/club.dart';
 import '../../services/club_service.dart';
+import '../../widgets/subscription_gate.dart';
 import 'create_club_screen.dart';
 import 'club_details_screen.dart';
 
@@ -20,6 +21,7 @@ class _ClubsListScreenState extends State<ClubsListScreen> {
   List<Club> _clubs = [];
   List<Club> _filteredClubs = [];
   bool _isLoading = true;
+  bool _hasPermissionError = false;
   Position? _userPosition;
 
   // Maximum distance in kilometers to show clubs
@@ -119,14 +121,32 @@ class _ClubsListScreenState extends State<ClubsListScreen> {
         _clubs = nearbyClubs;
         _filteredClubs = nearbyClubs;
         _isLoading = false;
+        _hasPermissionError = false;
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error loading clubs: $e')));
+        final isPermissionError = e.toString().contains('permission-denied') ||
+            e.toString().contains('PERMISSION_DENIED');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isPermissionError
+                  ? 'No clubs found in your area yet. Be the first to start one!'
+                  : 'Could not load clubs. Please check your connection and try again.',
+            ),
+            backgroundColor: isPermissionError ? Colors.orange : Colors.redAccent,
+          ),
+        );
       }
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        if (e.toString().contains('permission-denied') ||
+            e.toString().contains('PERMISSION_DENIED')) {
+          _clubs = [];
+          _filteredClubs = [];
+          _hasPermissionError = true;
+        }
+      });
     }
   }
 
@@ -193,8 +213,11 @@ class _ClubsListScreenState extends State<ClubsListScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
+      body: SubscriptionGate(
+        featureName: 'Clubs',
+        featureIcon: Icons.groups_rounded,
+        child: Column(
+          children: [
           // Search Bar
           Padding(
             padding: const EdgeInsets.all(16.0),
@@ -273,6 +296,7 @@ class _ClubsListScreenState extends State<ClubsListScreen> {
                   ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -572,17 +596,22 @@ class _ClubsListScreenState extends State<ClubsListScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            _selectedCategory == null && _searchController.text.isEmpty
-                ? 'No clubs yet'
-                : 'No clubs found',
+            _hasPermissionError
+                ? 'No clubs near you yet'
+                : (_selectedCategory == null && _searchController.text.isEmpty
+                    ? 'No clubs yet'
+                    : 'No clubs found'),
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
           Text(
-            'Be the first to create one!',
+            _hasPermissionError
+                ? 'Clubs in your region aren\'t available yet. Be the first to start one!'
+                : 'Be the first to create one!',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: Theme.of(context).colorScheme.outline,
             ),
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 24),
           ElevatedButton.icon(

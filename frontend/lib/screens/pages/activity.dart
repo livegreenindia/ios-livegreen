@@ -26,6 +26,7 @@ import '../../models/screen_control.dart';
 import '../nutrition/nutrition_navigator_screen.dart';
 import '../profile_setup_page.dart';
 import 'explorer.dart';
+import '../../widgets/subscription_gate.dart';
 
 class ActivityPage extends StatefulWidget {
   const ActivityPage({super.key});
@@ -1474,163 +1475,201 @@ class _ActivityPageState extends State<ActivityPage> {
               ),
               const SizedBox(height: 16),
 
-              // Time Slot Tabs
-              _buildTimeSlotTabs(),
+              // Trial countdown banner (shown only while trial is active)
+              const SubscriptionTrialBanner(),
 
-              // Activities Section Header with personalized greeting
-              Padding(
-                padding: const EdgeInsets.only(top: 4, bottom: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (_wellnessProfile != null) ...[
-                            // Personalized greeting
-                            Text(
-                              'Your Daily Activities',
-                              style: GoogleFonts.manrope(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: primaryColor,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              'Based on your $_wellnessProfile lifestyle',
-                              style: GoogleFonts.manrope(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ] else ...[
-                            // Default header
-                            Text(
-                              'Daily Activities',
-                              style: GoogleFonts.manrope(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: primaryColor,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    if (_activitiesLoading)
-                      const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                  ],
-                ),
-              ),
-
-              // Error State
-              if (_activitiesError != null)
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      children: [
-                        Icon(
-                          Icons.cloud_off,
-                          size: 64,
-                          color: Colors.grey.shade400,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Unable to load activities',
-                          style: GoogleFonts.manrope(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _activitiesError!,
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.manrope(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: _loadActivities,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Try Again'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryColor,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              // Empty State
-              else if (_activities.isEmpty && !_activitiesLoading)
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
-                      children: [
-                        Icon(
-                          Icons.eco,
-                          size: 64,
-                          color: primaryColor.withAlpha((0.5 * 255).round()),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No activities available',
-                          style: GoogleFonts.manrope(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Check back later for new eco-friendly activities!',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.manrope(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              // Activities List - Grouped by Time Slot
-              else
-                ..._buildGroupedActivities(),
+              // Activities section — Explore-button activities are gated
+              _buildActivitiesSection(),
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// Builds the full activities section (time slot tabs + header + list/error/empty).
+  /// Used inside [SubscriptionGate] in [build].
+  Widget _buildActivitiesSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Time Slot Tabs
+        _buildTimeSlotTabs(),
+
+        // Activities Section Header with personalized greeting
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_wellnessProfile != null) ...[
+                      // Personalized greeting
+                      Text(
+                        'Your Daily Activities',
+                        style: GoogleFonts.manrope(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: primaryColor,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Based on your $_wellnessProfile lifestyle',
+                        style: GoogleFonts.manrope(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ] else ...[
+                      // Default header
+                      Text(
+                        'Daily Activities',
+                        style: GoogleFonts.manrope(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: primaryColor,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (_activitiesLoading)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+        ),
+
+        // Error State
+        if (_activitiesError != null)
+          Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.cloud_off,
+                    size: 64,
+                    color: Colors.grey.shade400,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Unable to load activities',
+                    style: GoogleFonts.manrope(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _activitiesError!,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.manrope(
+                      fontSize: 14,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: _loadActivities,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Try Again'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        // Empty State
+        else if (_activities.isEmpty && !_activitiesLoading)
+          Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.eco,
+                    size: 64,
+                    color: primaryColor.withAlpha((0.5 * 255).round()),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No activities available',
+                    style: GoogleFonts.manrope(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Check back later for new eco-friendly activities!',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.manrope(
+                      fontSize: 14,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        // Activities List - Grouped by Time Slot
+        else
+          ..._buildGroupedActivities(),
+      ],
+    );
+  }
+
+  /// Wraps a single activity card in [SubscriptionGate] when it has an
+  /// "Explore" button (nature/outdoor activities) OR a "Diet" button
+  /// (nutrition activities). All other cards are returned unwrapped.
+  Widget _maybeGateActivity(Map<String, dynamic> activity) {
+    final actionButtonType =
+        (activity['actionButtonType'] ?? 'auto').toString().toLowerCase();
+    final isExploreActivity = _isNatureExplorerActivity(activity) ||
+        actionButtonType == 'explore';
+    final isDietActivity = _isNutritionActivity(activity) ||
+        actionButtonType == 'diet';
+    if (isExploreActivity || isDietActivity) {
+      return SubscriptionGate(
+        featureName: isExploreActivity ? 'Nature Explorer' : 'Nutrition & Diet',
+        featureIcon: isExploreActivity
+            ? Icons.travel_explore
+            : Icons.restaurant_menu,
+        child: activityCard(activity),
+      );
+    }
+    return activityCard(activity);
   }
 
   /// Build activities grouped by time slot
@@ -1642,7 +1681,7 @@ class _ActivityPageState extends State<ActivityPage> {
 
     if (!hasTimeSlots) {
       // No time slots - display as flat list (for non-wellness activities)
-      return _activities.map((a) => activityCard(a)).toList();
+      return _activities.map((a) => _maybeGateActivity(a)).toList();
     }
 
     // Filter activities by selected time slot
@@ -1770,7 +1809,7 @@ class _ActivityPageState extends State<ActivityPage> {
 
     // Add all activities for selected time slot
     for (final activity in filteredActivities) {
-      widgets.add(activityCard(activity));
+      widgets.add(_maybeGateActivity(activity));
     }
 
     return widgets;

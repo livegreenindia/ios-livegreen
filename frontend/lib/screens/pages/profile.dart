@@ -773,7 +773,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                "💚 Support Us – ₹199",
+                "💚 Support Us – ₹99",
                 style: GoogleFonts.manrope(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,

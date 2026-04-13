@@ -133,11 +133,11 @@ module.exports = (db, authMiddleware, requireAuth) => {
         await db.collection('payments').doc(razorpay_order_id).update({
           status: 'failed'
         });
-        return res.status(400).json({ error: 'Invalid signature' });
+        return res.status(400).json({ error: 'Payment could not be verified. Please contact support.' });
       }
     } catch (err) {
       console.error('Payment verification failed', err);
-      res.status(500).json({ error: 'Payment verification failed' });
+      res.status(500).json({ error: 'Something went wrong during verification. Please contact support.' });
     }
   });
 
