@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'screens/pages/progress_refresh_notifier.dart';
+import 'services/subscription_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -91,8 +92,28 @@ class LiveGreenApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => ProgressRefreshNotifier(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ProgressRefreshNotifier()),
+        ChangeNotifierProvider(
+          create: (_) {
+            final subs = SubscriptionService();
+            // Initialize subscription state whenever a user is signed in.
+            // Guard against duplicate calls (e.g. token-refresh auth events)
+            // by checking whether initialization is already in progress.
+            String? _lastInitUid;
+            FirebaseAuth.instance.authStateChanges().listen((user) {
+              if (user != null && user.uid != _lastInitUid) {
+                _lastInitUid = user.uid;
+                subs.initialize();
+              } else if (user == null) {
+                _lastInitUid = null;
+              }
+            });
+            return subs;
+          },
+        ),
+      ],
       child: MaterialApp(
         title: 'LiveGreen',
         navigatorKey: navigatorKey,

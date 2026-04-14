@@ -48,7 +48,7 @@ class SubscriptionSuccessPage extends StatelessWidget {
               
               // Success Message
               Text(
-                'You are now a premium member',
+                'You are now a Livegreen Premium member',
                 style: GoogleFonts.manrope(
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
@@ -59,7 +59,7 @@ class SubscriptionSuccessPage extends StatelessWidget {
               const SizedBox(height: 8),
               
               Text(
-                'Enjoy exclusive features and benefits',
+                'All locked features are now unlocked',
                 style: GoogleFonts.manrope(
                   fontSize: 14,
                   color: isDark ? Colors.white60 : Colors.black45,
@@ -89,11 +89,11 @@ class SubscriptionSuccessPage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _benefitRow(Icons.check_circle_outline, 'Ad-free experience', isDark),
-                    _benefitRow(Icons.fitness_center, 'Advanced fitness tracking', isDark),
-                    _benefitRow(Icons.insights, 'Detailed analytics', isDark),
-                    _benefitRow(Icons.groups, 'Priority support', isDark),
-                    _benefitRow(Icons.stars, 'Exclusive content', isDark),
+                    _benefitRow(Icons.explore_rounded, 'Nature Explorer activities unlocked', isDark),
+                    _benefitRow(Icons.restaurant_menu_rounded, 'Nutrition & diet activities unlocked', isDark),
+                    _benefitRow(Icons.groups_rounded, 'Community clubs — full access', isDark),
+                    _benefitRow(Icons.watch_outlined, 'Health Connect & wearable sync', isDark),
+                    _benefitRow(Icons.all_inclusive_rounded, 'All future premium features', isDark),
                   ],
                 ),
               ),

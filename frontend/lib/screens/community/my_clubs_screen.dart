@@ -46,7 +46,10 @@ class _MyClubsScreenState extends State<MyClubsScreen> with SingleTickerProvider
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading clubs: $e')),
+          SnackBar(
+            content: const Text('Could not load your clubs. Please check your connection and try again.'),
+            backgroundColor: Colors.redAccent,
+          ),
         );
       }
       setState(() => _isLoading = false);

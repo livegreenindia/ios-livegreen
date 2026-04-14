@@ -3,11 +3,55 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:ui' show PlatformDispatcher;
 import '../../services/api.dart';
+import '../../services/subscription_service.dart';
 import '../../config/api.dart' as cfg;
 import '../../theme/app_theme.dart';
 import 'subscriptionsuccesspage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Annual pricing per region — ₹199/year equivalent in local currency
+// ─────────────────────────────────────────────────────────────────────────────
+class _PricingInfo {
+  final double amount;
+  final String currency;
+  final String displayAmount; // e.g. "₹199" or "$2.99"
+
+  const _PricingInfo({
+    required this.amount,
+    required this.currency,
+    required this.displayAmount,
+  });
+}
+
+const _kPricingMap = <String, _PricingInfo>{
+  'INR': _PricingInfo(amount: 99,   currency: 'INR', displayAmount: '₹99'),
+  'USD': _PricingInfo(amount: 1.49,  currency: 'USD', displayAmount: '\$1.49'),
+  'EUR': _PricingInfo(amount: 1.29,  currency: 'EUR', displayAmount: '€1.29'),
+  'GBP': _PricingInfo(amount: 0.99,  currency: 'GBP', displayAmount: '£0.99'),
+  'AED': _PricingInfo(amount: 4.49, currency: 'AED', displayAmount: 'AED 4.49'),
+  'SGD': _PricingInfo(amount: 1.99,  currency: 'SGD', displayAmount: 'S\$1.99'),
+  'AUD': _PricingInfo(amount: 1.99,  currency: 'AUD', displayAmount: 'A\$1.99'),
+  'CAD': _PricingInfo(amount: 1.99,  currency: 'CAD', displayAmount: 'C\$1.99'),
+  'MYR': _PricingInfo(amount: 5.99, currency: 'MYR', displayAmount: 'RM 5.99'),
+};
+
+const _kCountryCurrencyMap = <String, String>{
+  'IN': 'INR', 'US': 'USD', 'GB': 'GBP', 'AU': 'AUD', 'CA': 'CAD',
+  'SG': 'SGD', 'AE': 'AED', 'MY': 'MYR',
+  // Eurozone
+  'DE': 'EUR', 'FR': 'EUR', 'IT': 'EUR', 'ES': 'EUR', 'NL': 'EUR',
+  'BE': 'EUR', 'AT': 'EUR', 'FI': 'EUR', 'PT': 'EUR', 'IE': 'EUR',
+  'GR': 'EUR', 'LU': 'EUR',
+};
+
+_PricingInfo _detectPricing() {
+  final countryCode = PlatformDispatcher.instance.locale.countryCode ?? '';
+  final currencyCode = _kCountryCurrencyMap[countryCode] ?? 'INR';
+  return _kPricingMap[currencyCode] ?? _kPricingMap['INR']!;
+}
 
 class SubscriptionPaymentPage extends StatefulWidget {
   final bool isDonation;
@@ -26,7 +70,7 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage>
   Color get backgroundLight => AppColors.backgroundLight;
   Color get backgroundDark => AppColors.backgroundDark;
 
-  final double _amount = 199.0;
+  late final _PricingInfo _pricing;
   bool _loading = false;
   String? _error;
   String? _errorDetails;
@@ -37,6 +81,7 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage>
   @override
   void initState() {
     super.initState();
+    _pricing = _detectPricing();
     WidgetsBinding.instance.addObserver(this);
     // Initialize Razorpay SDK only when needed (i.e., not using external link)
     if (!(widget.isDonation && cfg.razorpayPaymentLink.isNotEmpty)) {
@@ -119,7 +164,7 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage>
       final api = ApiService(baseUrl: cfg.apiBaseUrl);
 
       // 1. Create Razorpay order via backend
-      final resp = await api.createRazorpayOrder(_amount);
+      final resp = await api.createRazorpayOrder(_pricing.amount, currency: _pricing.currency);
       final orderId = resp['orderId'] as String?;
       final key = resp['key'] as String? ?? cfg.razorpayPublicKey;
 
@@ -144,8 +189,8 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage>
 
       final options = {
         'key': key,
-        'amount': (_amount * 100).toInt(), // in paise
-        'currency': 'INR',
+        'amount': (_pricing.amount * 100).toInt(), // in smallest currency unit
+        'currency': _pricing.currency,
         'name': 'Livegreen',
         'description': widget.isDonation ? 'Support Contribution' : 'Premium Subscription',
         'order_id': orderId,
@@ -185,13 +230,9 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage>
 
       // Only mark premium locally AFTER successful verification
       // This ensures UI only shows premium status when payment is actually verified
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('is_premium', true);
-      } catch (e) {
-        // ignore shared prefs errors
-        debugPrint('Failed to persist local premium flag: $e');
-      }
+      // markPremiumLocally() updates both SharedPrefs AND in-memory state so
+      // gates disappear immediately when user returns to home screen.
+      await SubscriptionService().markPremiumLocally();
 
       if (mounted) {
         setState(() {
@@ -210,24 +251,21 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage>
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('is_premium', false);
       } catch (_) {}
-      
+
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _isProcessingPayment = false;
         _error = 'Payment verification failed. Tap "Show details" for more.';
         _errorDetails = e.toString();
       });
-      
-      // Show user-friendly error
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Payment verification failed. Please contact support if amount was deducted.'),
-            duration: Duration(seconds: 5),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Payment verification failed. Please contact support if amount was deducted.'),
+          duration: Duration(seconds: 5),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -366,7 +404,7 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage>
                 child: _loading
                     ? const CircularProgressIndicator(color: Colors.white)
                     : Text(
-                        widget.isDonation ? "Donate ₹${_amount.toInt()}" : "Pay ₹${_amount.toInt()}",
+                        widget.isDonation ? "Donate ${_pricing.displayAmount}" : "Pay ${_pricing.displayAmount}",
                         style: GoogleFonts.manrope(
                           fontWeight: FontWeight.w600,
                           color: Colors.white,
@@ -398,9 +436,9 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage>
             _priceRow("Duration", "1 Year"),
             const SizedBox(height: 10),
           ],
-          _priceRow("Amount", "₹199"),
+          _priceRow("Amount", _pricing.displayAmount),
           const Divider(height: 30, thickness: 1),
-          _priceRow("Total", "₹199", isTotal: true),
+          _priceRow("Total", _pricing.displayAmount, isTotal: true),
           if (widget.isDonation) ...[
             const SizedBox(height: 16),
             Text(

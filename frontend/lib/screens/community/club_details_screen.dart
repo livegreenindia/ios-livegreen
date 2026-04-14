@@ -110,8 +110,17 @@ $clubLink
       });
     } catch (e) {
       if (mounted) {
+        final isPermissionError = e.toString().contains('permission-denied') ||
+            e.toString().contains('PERMISSION_DENIED');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading club: $e')),
+          SnackBar(
+            content: Text(
+              isPermissionError
+                  ? 'This club is not available in your region yet.'
+                  : 'Could not load club details. Please try again.',
+            ),
+            backgroundColor: isPermissionError ? Colors.orange : Colors.redAccent,
+          ),
         );
       }
       setState(() => _isLoading = false);

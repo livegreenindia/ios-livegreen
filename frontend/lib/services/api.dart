@@ -337,7 +337,7 @@ class ApiService {
 
   // ---- Razorpay Payment APIs ---- //
 
-  Future<Map<String, dynamic>> createRazorpayOrder(double amount) async {
+  Future<Map<String, dynamic>> createRazorpayOrder(double amount, {String currency = 'INR'}) async {
     final token = await _getIdToken();
     final uri = Uri.parse('$baseUrl/payments/create');
     final resp = await http.post(
@@ -346,7 +346,7 @@ class ApiService {
         'Content-Type': 'application/json',
         if (token != null) 'Authorization': 'Bearer $token',
       },
-      body: json.encode({'amount': amount}),
+      body: json.encode({'amount': amount, 'currency': currency}),
     );
 
     if (resp.statusCode == 200) {
@@ -367,9 +367,12 @@ class ApiService {
           ? resp.body
           : resp.body.replaceAll(RegExp(r'<[^>]*>'), ' ').trim();
     }
-    final msg =
-        'Failed to create Razorpay order (${resp.statusCode}) at ${uri.toString()}: ${bodyPreview.length > 400 ? "${bodyPreview.substring(0, 400)}..." : bodyPreview}';
-    throw Exception(msg);
+    // Log full details for developer debugging only — never expose URLs/status to user.
+    debugPrint(
+      '[ApiService] createRazorpayOrder failed (${resp.statusCode}) '
+      'at ${uri.toString()}: ${bodyPreview.length > 400 ? "${bodyPreview.substring(0, 400)}..." : bodyPreview}',
+    );
+    throw Exception('Could not start payment. Please try again or contact support.');
   }
 
   Future<void> verifyRazorpayPayment(
@@ -400,9 +403,12 @@ class ApiService {
             ? resp.body
             : resp.body.replaceAll(RegExp(r'<[^>]*>'), ' ').trim();
       }
-      throw Exception(
-        'Payment verification failed (${resp.statusCode}) at ${uri.toString()}: ${bodyPreview.length > 400 ? "${bodyPreview.substring(0, 400)}..." : bodyPreview}',
+      // Log full details for developer debugging, but throw a clean message for UI.
+      debugPrint(
+        '[ApiService] verifyRazorpayPayment failed (${resp.statusCode}) '
+        'at ${uri.toString()}: ${bodyPreview.length > 400 ? "${bodyPreview.substring(0, 400)}..." : bodyPreview}',
       );
+      throw Exception('Payment verification failed. Please contact support if your amount was deducted.');
     }
   }
 }

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "scripts": {
     "lint": "node -e \"try{require('child_process').execSync('npx eslint . --ext .js,.ts', {stdio:'inherit'});}catch(e){}\"",
