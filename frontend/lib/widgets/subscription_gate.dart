@@ -20,6 +20,11 @@ String _localAnnualPrice() {
     'AED': 'AED 4.49', 'SGD': r'S$1.99', 'AUD': r'A$1.99',
     'CAD': r'C$1.99', 'MYR': 'RM 5.99',
   };
+  // Prefer timezone-based detection: IST (UTC+5:30 = 330 min) reliably
+  // identifies Indian users even when their device locale is set to en_US.
+  final tzOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
+  if (tzOffsetMinutes == 330) return '₹99';
+
   final country = PlatformDispatcher.instance.locale.countryCode ?? '';
   final currency = _countryCurrency[country] ?? 'INR';
   return _display[currency] ?? '₹99';

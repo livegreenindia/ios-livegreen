@@ -48,6 +48,11 @@ const _kCountryCurrencyMap = <String, String>{
 };
 
 _PricingInfo _detectPricing() {
+  // Prefer timezone-based detection: IST (UTC+5:30 = 330 min) reliably
+  // identifies Indian users even when their device locale is set to en_US.
+  final tzOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
+  if (tzOffsetMinutes == 330) return _kPricingMap['INR']!;
+
   final countryCode = PlatformDispatcher.instance.locale.countryCode ?? '';
   final currencyCode = _kCountryCurrencyMap[countryCode] ?? 'INR';
   return _kPricingMap[currencyCode] ?? _kPricingMap['INR']!;
