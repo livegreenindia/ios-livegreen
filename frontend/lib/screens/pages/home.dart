@@ -4,6 +4,7 @@ import 'activity.dart';
 import 'progress.dart';
 import '../community/clubs_list_screen.dart';
 import 'profile.dart';
+import 'feed.dart';
 import '../trek/trek_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -19,15 +20,22 @@ class _HomeScreenState extends State<HomeScreen> {
   final List<Widget> _pages = const [
     ActivityPage(),
     ProgressPage(),
+    FeedPage(),
     ClubsListScreen(),
     TrekListScreen(),
-    ProfilePage(),
   ];
 
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
     });
+  }
+
+  void _openProfile() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ProfilePage()),
+    );
   }
 
   @override
@@ -55,6 +63,11 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Progress',
           ),
           NavigationDestination(
+            icon: Icon(Icons.spa_outlined),
+            selectedIcon: Icon(Icons.spa),
+            label: 'Feed',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.groups_outlined),
             selectedIcon: Icon(Icons.groups),
             label: 'Clubs',
@@ -63,11 +76,6 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.explore_outlined),
             selectedIcon: Icon(Icons.explore),
             label: 'Explorer',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.account_circle_outlined),
-            selectedIcon: Icon(Icons.account_circle),
-            label: 'Profile',
           ),
         ],
       ),

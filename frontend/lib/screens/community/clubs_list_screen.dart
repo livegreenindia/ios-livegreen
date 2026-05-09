@@ -5,6 +5,7 @@ import '../../services/club_service.dart';
 import '../../widgets/subscription_gate.dart';
 import 'create_club_screen.dart';
 import 'club_details_screen.dart';
+import '../pages/profile.dart';
 
 class ClubsListScreen extends StatefulWidget {
   const ClubsListScreen({super.key});
@@ -198,6 +199,14 @@ class _ClubsListScreenState extends State<ClubsListScreen> {
         title: const Text('Clubs'),
         elevation: 0,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.account_circle_outlined, size: 26),
+            tooltip: 'Profile',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ProfilePage()),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.all(8.0),
             child: ElevatedButton.icon(

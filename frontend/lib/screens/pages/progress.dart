@@ -15,6 +15,7 @@ import '../../services/health_connect_service.dart';
 import '../../services/progress_calculator_service.dart';
 import '../../models/screen_control.dart';
 import '../health_connect_screen.dart';
+import 'profile.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
@@ -1893,6 +1894,18 @@ class _ProgressPageState extends State<ProgressPage>
                           // Refresh Health Connect status when returning
                           _initHealthConnect();
                         },
+                      ),
+                      IconButton(
+                        tooltip: 'Profile',
+                        icon: Icon(
+                          Icons.account_circle_outlined,
+                          color: isDark ? Colors.white70 : primaryColor,
+                          size: 26,
+                        ),
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const ProfilePage()),
+                        ),
                       ),
                     ],
                   ),

@@ -21,6 +21,7 @@ import 'draw_path_screen.dart';
 import 'favorites_screen.dart';
 import 'history_screen.dart';
 import 'pending_places_screen.dart';
+import '../pages/profile.dart';
 
 /// Trek List Screen with filtering, search, and pagination
 class TrekListScreen extends StatefulWidget {
@@ -1123,6 +1124,14 @@ class _TrekListScreenState extends State<TrekListScreen>
                       ),
                     );
                   },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.account_circle_outlined, size: 26),
+                  tooltip: 'Profile',
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ProfilePage()),
+                  ),
                 ),
               ],
               bottom: PreferredSize(

@@ -28,7 +28,7 @@ service cloud.firestore {
     // Users top-level document - user can read/write their own data
     match /users/{userId} {
       allow read, write: if isOwner(userId);
-      allow read: if isAdmin() || isAdminByRole();
+      allow read, write: if isAdmin() || isAdminByRole();
       
       // User's recorded tracks subcollection
       match /tracks/{trackId} {

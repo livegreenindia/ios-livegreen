@@ -18,6 +18,7 @@ import '../../theme/app_theme.dart';
 import '../../models/user_profile.dart';
 import 'progress_refresh_notifier.dart';
 import 'package:provider/provider.dart';
+import 'profile.dart';
 import '../../models/lux.dart';
 import 'meditation.dart';
 import 'mindfulness_bell_reminder_screen.dart';
@@ -1092,6 +1093,18 @@ class _ActivityPageState extends State<ActivityPage> {
                     ),
                     tooltip: 'Refresh Activities',
                     onPressed: _activitiesLoading ? null : _loadActivities,
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      Icons.account_circle_outlined,
+                      color: isDark ? Colors.white70 : primaryColor,
+                      size: 26,
+                    ),
+                    tooltip: 'Profile',
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ProfilePage()),
+                    ),
                   ),
                 ],
               ),

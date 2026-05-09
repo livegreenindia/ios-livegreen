@@ -4,12 +4,42 @@ const admin = require('firebase-admin');
 module.exports = (db, authMiddleware, adminOnly) => {
   const router = express.Router();
 
-  // List users (admin only) - basic listing using Firebase Auth listUsers
+  // List users (admin only) - merged Firebase Auth + Firestore data
   router.get('/users', authMiddleware, adminOnly, async (req, res) => {
     try {
-      // list up to 1000 users
-      const list = await require('firebase-admin').auth().listUsers(1000);
-      const users = list.users.map(u => ({ uid: u.uid, email: u.email, displayName: u.displayName, customClaims: u.customClaims }));
+      // Fetch all Auth users (handles pagination)
+      const authUsers = [];
+      let pageToken;
+      do {
+        const result = await admin.auth().listUsers(1000, pageToken);
+        authUsers.push(...result.users);
+        pageToken = result.pageToken;
+      } while (pageToken);
+
+      // Fetch all Firestore user documents
+      const firestoreSnap = await db.collection('users').get();
+      const firestoreMap = {};
+      firestoreSnap.forEach(doc => {
+        firestoreMap[doc.id] = doc.data();
+      });
+
+      // Merge
+      const users = authUsers.map(u => {
+        const fsData = firestoreMap[u.uid] || {};
+        return {
+          uid: u.uid,
+          email: u.email || fsData.email || '',
+          displayName: u.displayName || fsData.name || fsData.displayName || '',
+          photoURL: u.photoURL || fsData.photoURL || '',
+          role: fsData.role || (u.customClaims && u.customClaims.admin ? 'admin' : 'user'),
+          isAdmin: fsData.role === 'admin' || (u.customClaims && u.customClaims.admin === true),
+          feedAccess: fsData.feedAccess === true || fsData.role === 'admin',
+          plan: fsData.plan || 'Free',
+          createdAt: u.metadata.creationTime || null,
+          lastSignIn: u.metadata.lastSignInTime || null,
+        };
+      });
+
       res.json({ users });
     } catch (err) {
       console.error(err);

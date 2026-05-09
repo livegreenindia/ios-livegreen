@@ -316,6 +316,90 @@ class ApiService {
     );
   }
 
+  // ---- Inspiration Feed APIs ---- //
+
+  Future<List<dynamic>> getFeedPosts() async {
+    final token = await _getIdToken();
+    final uri = Uri.parse('$baseUrl/feed');
+    final resp = await http.get(
+      uri,
+      headers: _buildHeaders(jsonContent: false, token: token, method: 'GET', url: uri.toString()),
+    );
+    if (resp.statusCode == 200) {
+      final parsed = json.decode(resp.body);
+      return parsed['posts'] as List<dynamic>;
+    }
+    throw Exception('Failed to load feed (${resp.statusCode}): ${resp.body}');
+  }
+
+  Future<void> createFeedPost(String text, {String? imageUrl}) async {
+    final token = await _getIdToken();
+    final uri = Uri.parse('$baseUrl/feed');
+    final body = {'text': text, if (imageUrl != null) 'imageUrl': imageUrl};
+    final resp = await http.post(
+      uri,
+      headers: _buildHeaders(jsonContent: true, token: token, method: 'POST', url: uri.toString()),
+      body: json.encode(body),
+    );
+    if (resp.statusCode != 200 && resp.statusCode != 201) {
+      throw Exception('Failed to create feed post (${resp.statusCode}): ${resp.body}');
+    }
+  }
+
+  Future<bool> likeFeedPost(String postId) async {
+    final token = await _getIdToken();
+    final uri = Uri.parse('$baseUrl/feed/$postId/like');
+    final resp = await http.post(
+      uri,
+      headers: _buildHeaders(jsonContent: false, token: token, method: 'POST', url: uri.toString()),
+    );
+    if (resp.statusCode == 200 || resp.statusCode == 201) {
+      final parsed = json.decode(resp.body) as Map<String, dynamic>;
+      return parsed['liked'] == true;
+    }
+    throw Exception('Failed to like feed post (${resp.statusCode})');
+  }
+
+  Future<void> postFeedComment(String postId, String text) async {
+    final token = await _getIdToken();
+    final uri = Uri.parse('$baseUrl/feed/$postId/comments');
+    final resp = await http.post(
+      uri,
+      headers: _buildHeaders(jsonContent: true, token: token, method: 'POST', url: uri.toString()),
+      body: json.encode({'text': text}),
+    );
+    if (resp.statusCode != 200 && resp.statusCode != 201) {
+      throw Exception('Failed to post feed comment (${resp.statusCode})');
+    }
+  }
+
+  Future<String> uploadFeedImage(String filename, String base64Data) async {
+    final token = await _getIdToken();
+    final uri = Uri.parse('$baseUrl/feed/upload');
+    final resp = await http.post(
+      uri,
+      headers: _buildHeaders(jsonContent: true, token: token, method: 'POST', url: uri.toString()),
+      body: json.encode({'filename': filename, 'data': base64Data}),
+    );
+    if (resp.statusCode == 200) {
+      final parsed = json.decode(resp.body) as Map<String, dynamic>;
+      return parsed['url'] as String;
+    }
+    throw Exception('Failed to upload feed image (${resp.statusCode}): ${resp.body}');
+  }
+
+  Future<void> deleteFeedPost(String postId) async {
+    final token = await _getIdToken();
+    final uri = Uri.parse('$baseUrl/feed/$postId');
+    final resp = await http.delete(
+      uri,
+      headers: _buildHeaders(jsonContent: false, token: token, method: 'DELETE', url: uri.toString()),
+    );
+    if (resp.statusCode != 200) {
+      throw Exception('Failed to delete feed post (${resp.statusCode})');
+    }
+  }
+
   // Profile
   Future<Map<String, dynamic>> getProfile() async {
     final token = await _getIdToken();

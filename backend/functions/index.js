@@ -49,9 +49,14 @@ function requireAuth(req, res, next) {
   return res.status(401).json({ error: 'Unauthorized' });
 }
 
-// Admin middleware
-function adminOnly(req, res, next) {
-  if (req.user && req.user.admin === true) return next();
+// Admin middleware — accepts custom claim OR Firestore role
+async function adminOnly(req, res, next) {
+  if (!req.user || !req.user.uid) return res.status(403).json({ error: 'Admin only' });
+  if (req.user.admin === true) return next();
+  try {
+    const userDoc = await db.collection('users').doc(req.user.uid).get();
+    if (userDoc.exists && userDoc.data() && userDoc.data().role === 'admin') return next();
+  } catch (_) {}
   return res.status(403).json({ error: 'Admin only' });
 }
 
@@ -59,6 +64,7 @@ function adminOnly(req, res, next) {
 const activitiesRouter = require('./routes/activities')(db, authMiddleware, adminOnly);
 const happinessRouter = require('./routes/happiness')(db, authMiddleware);
 const forumRouter = require('./routes/forum')(db, authMiddleware);
+const feedRouter = require('./routes/feed')(db, authMiddleware);
 const profileRouter = require('./routes/profile')(db, authMiddleware, requireAuth);
 const devicesRouter = require('./routes/devices')(db, authMiddleware);
 const adminRouter = require('./routes/admin')(db, authMiddleware, adminOnly);
@@ -70,6 +76,7 @@ const fitbitRouter = require('./routes/fitbit')(db, authMiddleware, requireAuth)
 app.use('/activities', activitiesRouter);
 app.use('/happiness', happinessRouter);
 app.use('/forum', forumRouter);
+app.use('/feed', feedRouter);
 app.use('/profile', profileRouter);
 app.use('/devices', devicesRouter);
 app.use('/admin', adminRouter);
