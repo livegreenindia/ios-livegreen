@@ -1525,11 +1525,13 @@ class _TimerScreenState extends State<TimerScreen> {
       await prefs.setInt('current_dnd_mode', mode);
     } catch (e) {
       print('Error setting DND mode: $e');
-      // Fallback: open DND settings for manual control
-      final intent = AndroidIntent(
-        action: 'android.settings.ZEN_MODE_SETTINGS',
-      );
-      await intent.launch();
+      // Fallback: open DND settings for manual control (Android only)
+      if (Platform.isAndroid) {
+        final intent = AndroidIntent(
+          action: 'android.settings.ZEN_MODE_SETTINGS',
+        );
+        await intent.launch();
+      }
     }
   }
 

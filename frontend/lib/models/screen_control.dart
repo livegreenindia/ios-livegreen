@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usage_stats/usage_stats.dart';
 import 'dart:async';
+import 'dart:io';
 import 'app_blocker.dart';
 import 'usage_service.dart';
 import 'monitor_apps.dart';
@@ -61,6 +62,10 @@ class _PermissionWrapperState extends State<PermissionWrapper> {
   }
 
   Future<void> _checkPermissions() async {
+    if (!Platform.isAndroid) {
+      setState(() { _checking = false; _hasPermissions = false; });
+      return;
+    }
     final accessibility = await AppBlocker.checkAccessibilityPermission();
     final usage = (await UsageStats.checkUsagePermission()) == true;
 
@@ -116,6 +121,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
   }
 
   Future<void> _refresh() async {
+    if (!Platform.isAndroid) return;
     final a = await AppBlocker.checkAccessibilityPermission();
     final u = await UsageStats.checkUsagePermission();
     if (!mounted) return;
