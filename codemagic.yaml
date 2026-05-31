@@ -1,7 +1,7 @@
 workflows:
   ios-release:
     name: iOS Release 001
-    instance_type: mac_mini
+    instance_type: mac_pro
     environment:
       flutter: stable
       xcode: latest
