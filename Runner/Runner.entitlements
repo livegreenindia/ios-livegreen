@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- HealthKit access for health package -->
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+	<key>com.apple.developer.healthkit.access</key>
+	<array>
+		<string>health-records</string>
+	</array>
+
+	<!-- Push Notifications for Firebase Cloud Messaging -->
+	<key>aps-environment</key>
+	<string>production</string>
+
+	<!-- Associated Domains for Universal Links (clubs deep links) -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:livegreen-bf838.web.app</string>
+	</array>
+</dict>
+</plist>
