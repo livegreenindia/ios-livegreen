@@ -45,6 +45,45 @@
 		<true/>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
+		<key>UIStatusBarHidden</key>
+		<false/>
+
+		<!-- ====== Permission Usage Descriptions ====== -->
+		<key>NSCameraUsageDescription</key>
+		<string>Livegreen needs camera access to take profile photos and capture activity moments.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>Livegreen needs photo library access to select profile pictures and activity images.</string>
+		<key>NSPhotoLibraryAddUsageDescription</key>
+		<string>Livegreen needs permission to save photos to your library.</string>
+		<key>NSMicrophoneUsageDescription</key>
+		<string>Livegreen needs microphone access for audio recording during activities.</string>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>Livegreen uses your location to track treks and outdoor activities.</string>
+		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+		<string>Livegreen uses your location in the background to continuously track ongoing treks.</string>
+		<key>NSLocationAlwaysUsageDescription</key>
+		<string>Livegreen uses your location in the background to continuously track ongoing treks.</string>
+		<key>NSHealthShareUsageDescription</key>
+		<string>Livegreen reads health data like steps, calories, and heart rate to track your fitness progress.</string>
+		<key>NSHealthUpdateUsageDescription</key>
+		<string>Livegreen saves workout and activity data to Apple Health.</string>
+		<key>NSMotionUsageDescription</key>
+		<string>Livegreen uses motion sensors to detect physical activity and step count.</string>
+
+		<!-- ====== Google Maps API Key ====== -->
+		<key>GMSApiKey</key>
+		<string>AIzaSyA59STvjWZcL-k_gipSGBDV6u797zF0Q9M</string>
+
+		<!-- ====== Background Modes ====== -->
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>audio</string>
+			<string>fetch</string>
+			<string>location</string>
+			<string>remote-notification</string>
+		</array>
+
+		<!-- ====== URL Schemes: deep links + Google Sign-In ====== -->
 		<key>CFBundleURLTypes</key>
 		<array>
 			<dict>
@@ -57,8 +96,25 @@
 					<string>livegreen</string>
 				</array>
 			</dict>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLName</key>
+				<string>google-sign-in</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>com.googleusercontent.apps.762160532123-h7c3llc6ufo6gujk80e30fcg9cp4i5gd</string>
+				</array>
+			</dict>
 		</array>
-		<key>UIStatusBarHidden</key>
-		<false/>
+
+		<!-- ====== App Transport Security ====== -->
+		<key>NSAppTransportSecurity</key>
+		<dict>
+			<key>NSAllowsArbitraryLoads</key>
+			<false/>
+			<key>NSAllowsArbitraryLoadsInWebContent</key>
+			<true/>
+		</dict>
 	</dict>
 </plist>
