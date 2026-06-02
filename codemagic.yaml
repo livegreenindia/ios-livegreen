@@ -8,11 +8,13 @@ workflows:
     scripts:
       - name: Install dependencies
         script: |
-          cd frontend
+          set -e
+          cd LivegreenIntegration/frontend
           flutter pub get
       - name: Build iOS IPA
         script: |
-          cd frontend
+          set -e
+          cd LivegreenIntegration/frontend
           flutter build ipa --release
     artifacts:
-      - frontend/build/ios/ipa/*.ipa
+      - LivegreenIntegration/frontend/build/ios/ipa/*.ipa
