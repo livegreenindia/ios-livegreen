@@ -1,139 +1,64 @@
 workflows:
   ios-release:
-    name: iOS App Store Release
+    name: iOS Release
     instance_type: mac_mini_m1
     max_build_duration: 60
 
     environment:
       flutter: stable
       xcode: latest
-      cocoapods: default
-
-      # ── Code Signing ────────────────────────────────────────────────────────
-      # Codemagic will automatically fetch the distribution certificate and
-      # App Store provisioning profile from Apple Developer Portal.
-      # Requires: Team > Integrations > Developer Portal set up in Codemagic UI.
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.livegreen.app
-
-      # ── Secrets group ───────────────────────────────────────────────────────
-      # Create this group in Codemagic UI under Team > Global variables & secrets
-      # and add the three variables listed below.
       groups:
-        - app_store_connect
-
-      # ── Build-time vars (non-secret) ────────────────────────────────────────
+        - appstore_credentials   # APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID,
+                                 # APP_STORE_CONNECT_PRIVATE_KEY, CERTIFICATE_PRIVATE_KEY, APP_STORE_APPLE_ID
       vars:
-        FLUTTER_PROJECT: LivegreenIntegration/frontend
-
-    # ── App Store Connect integration ─────────────────────────────────────────
-    # Set up once in Codemagic UI: Team > Integrations > App Store Connect.
-    # The three secrets that live in the "app_store_connect" group are:
-    #   APP_STORE_CONNECT_KEY_IDENTIFIER  – Key ID  (e.g. ABC1234567)
-    #   APP_STORE_CONNECT_ISSUER_ID       – Issuer ID (UUID from App Store Connect)
-    #   APP_STORE_CONNECT_PRIVATE_KEY     – Contents of the .p8 file (paste raw)
-    integrations:
-      app_store_connect: Codemagic
+        BUNDLE_ID: com.livegreen.app
 
     scripts:
-      - name: Set up code signing
-        script: xcode-project use-profiles
-
-      - name: Get Flutter packages
+      - name: Fetch signing files
         script: |
           set -e
-          cd $FLUTTER_PROJECT
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
+      - name: Set up keychain and provisioning profiles
+        script: |
+          set -e
+          keychain initialize
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Install Flutter dependencies
+        script: |
+          set -e
+          cd frontend
           flutter pub get
 
-      - name: Install CocoaPods dependencies
+      - name: Install CocoaPods
         script: |
           set -e
-          cd $FLUTTER_PROJECT/ios
+          cd frontend/ios
           pod install
 
-      - name: Build iOS IPA (App Store)
+      - name: Build iOS IPA
         script: |
           set -e
-          cd $FLUTTER_PROJECT
-          flutter build ipa \
-            --release \
+          cd frontend
+          BUILD_NUMBER=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo 16) + 1))
+          flutter build ipa --release \
+            --build-number=$BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
 
     artifacts:
-      - $FLUTTER_PROJECT/build/ios/ipa/*.ipa
+      - frontend/build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
 
     publishing:
-      # ── TestFlight ──────────────────────────────────────────────────────────
-      # Uploads the IPA to TestFlight automatically after a successful build.
-      # Set submit_to_app_store: true only when you want to push directly to
-      # App Store review (you still need to submit manually in App Store Connect
-      # unless you turn on auto-release).
       app_store_connect:
-        auth: integration
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
-        submit_to_app_store: false
-        # beta_groups:          # Uncomment to add testers automatically
-        #   - Internal Testers
-
-      # ── Email notifications ─────────────────────────────────────────────────
-      email:
-        recipients:
-          - apps@livegreenindia.com
-        notify:
-          success: true
-          failure: true
-
-  # ──────────────────────────────────────────────────────────────────────────
-  # Optional: Android Play Store workflow kept for reference
-  # ──────────────────────────────────────────────────────────────────────────
-  android-release:
-    name: Android Play Store Release
-    instance_type: mac_mini_m1
-    max_build_duration: 60
-
-    environment:
-      flutter: stable
-      groups:
-        - google_play        # GCLOUD_SERVICE_ACCOUNT_CREDENTIALS (JSON key)
-        - android_signing    # CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
-      vars:
-        FLUTTER_PROJECT: LivegreenIntegration/frontend
-
-    scripts:
-      - name: Set up keystore
-        script: |
-          echo $CM_KEYSTORE | base64 --decode > $FLUTTER_PROJECT/android/app/keystore.jks
-          cat >> "$CM_BUILD_DIR/$FLUTTER_PROJECT/android/key.properties" << EOF
-          storePassword=$CM_KEYSTORE_PASSWORD
-          keyPassword=$CM_KEY_PASSWORD
-          keyAlias=$CM_KEY_ALIAS
-          storeFile=keystore.jks
-          EOF
-
-      - name: Get Flutter packages
-        script: |
-          set -e
-          cd $FLUTTER_PROJECT
-          flutter pub get
-
-      - name: Build Android App Bundle
-        script: |
-          set -e
-          cd $FLUTTER_PROJECT
-          flutter build appbundle --release
-
-    artifacts:
-      - $FLUTTER_PROJECT/build/app/outputs/bundle/release/app-release.aab
-      - $FLUTTER_PROJECT/build/app/outputs/mapping/release/mapping.txt
-
-    publishing:
-      google_play:
-        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
-        track: internal        # internal → alpha → beta → production
-        submit_as_draft: true
       email:
         recipients:
           - apps@livegreenindia.com
