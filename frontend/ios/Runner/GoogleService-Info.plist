@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CLIENT_ID</key>
-	<string>762160532123-h7c3llc6ufo6gujk80e30fcg9cp4i5gd.apps.googleusercontent.com</string>
+	<string>762160532123-1be1cf8dc74m2gd891glt5nh328cad6o.apps.googleusercontent.com</string>
 	<key>REVERSED_CLIENT_ID</key>
-	<string>com.googleusercontent.apps.762160532123-h7c3llc6ufo6gujk80e30fcg9cp4i5gd</string>
+	<string>com.googleusercontent.apps.762160532123-1be1cf8dc74m2gd891glt5nh328cad6o</string>
 	<key>ANDROID_CLIENT_ID</key>
 	<string>762160532123-cifhotq0cuf58ub3n6l6e6dsop127d7q.apps.googleusercontent.com</string>
 	<key>API_KEY</key>
@@ -15,7 +15,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.livegreen.app</string>
+	<string>com.livegreen.ios</string>
 	<key>PROJECT_ID</key>
 	<string>livegreen-bf838</string>
 	<key>STORAGE_BUCKET</key>
@@ -31,7 +31,7 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:762160532123:ios:8d36017486c3c0bed1d43e</string>
+	<string>1:762160532123:ios:7d6d6ed89227396dd1d43e</string>
 	<key>DATABASE_URL</key>
 	<string>https://livegreen-bf838-default-rtdb.asia-southeast1.firebasedatabase.app</string>
 </dict>
