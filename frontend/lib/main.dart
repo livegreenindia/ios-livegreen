@@ -30,59 +30,85 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
 
-  // Enable Firestore offline persistence for better UX
-  FirebaseFirestore.instance.settings = const Settings(
-    persistenceEnabled: true,
-    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-  );
+  // Firebase must be ready before the UI reads auth state, but it must never
+  // be allowed to hang startup. Bound it with a timeout and never let a failure
+  // stop us from rendering the first frame.
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    ).timeout(const Duration(seconds: 20));
 
-  // Initialize Firebase Cloud Messaging background handler
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    // Enable Firestore offline persistence for better UX
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+    );
 
-  // Initialize notification service
-  await NotificationService.initialize();
+    // Initialize Firebase Cloud Messaging background handler
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  // Initialize mindfulness bell local reminder scheduler
-  await MindfulnessBellScheduler.initialize();
-  await MindfulnessBellScheduler.restoreReminderIfEnabled();
-
-  // Location permission is now requested when needed (not at startup)
-
-  // Enable persistent auth - keeps user signed in (web only)
-  // `setPersistence` is a web-only API; guard it to avoid runtime errors on mobile.
-  if (kIsWeb) {
-    await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+    // Enable persistent auth - keeps user signed in (web only)
+    // `setPersistence` is a web-only API; guard it to avoid runtime errors on mobile.
+    if (kIsWeb) {
+      await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+    }
+  } catch (e, st) {
+    debugPrint('[Startup] Firebase initialization failed: $e\n$st');
   }
 
-  // If API_BASE_URL or running locally, connect to emulators for faster dev
+  final navigatorKey = GlobalKey<NavigatorState>();
+
+  // Render the UI immediately. The services below do not need to complete
+  // before the first frame, and awaiting them here previously left iOS stuck
+  // on the launch screen (e.g. FirebaseMessaging.getToken() can block waiting
+  // for an APNs token). They now initialize in the background, each guarded so
+  // a single failure or hang can never prevent the app from starting.
+  runApp(LiveGreenApp(navigatorKey: navigatorKey));
+
+  _initServicesInBackground(navigatorKey);
+}
+
+/// Best-effort background initialization for non-critical startup services.
+/// Each step is wrapped so a failure or hang cannot block the app from running.
+Future<void> _initServicesInBackground(
+    GlobalKey<NavigatorState> navigatorKey) async {
+  Future<void> guard(String name, Future<void> Function() task) async {
+    try {
+      await task().timeout(const Duration(seconds: 15));
+    } catch (e) {
+      debugPrint('[Startup] $name initialization skipped: $e');
+    }
+  }
+
+  await guard('Notifications', NotificationService.initialize);
+  await guard('MindfulnessBell', () async {
+    await MindfulnessBellScheduler.initialize();
+    await MindfulnessBellScheduler.restoreReminderIfEnabled();
+  });
+  // Location permission is now requested when needed (not at startup)
+
+  // Initialize the session manager so it can observe auth state and manage
+  // inactivity-based expiry. The navigatorKey lets it navigate to the login
+  // screen when the session expires.
+  await guard('SessionManager',
+      () => SessionManager.instance.init(navigatorKey: navigatorKey));
+
+  // Initialize deep link service for club sharing
+  await guard('DeepLink', () => DeepLinkService.initialize(navigatorKey));
+
+  // If running against a local backend, connect to emulators for faster dev.
   const localHosts = ['127.0.0.1', 'localhost'];
   final apiBase =
       const String.fromEnvironment('API_BASE_URL', defaultValue: '');
-  final isLocal = localHosts.any((h) => apiBase.contains(h));
-  if (isLocal) {
-    // Connect Auth to emulator
-    FirebaseAuth.instance.useAuthEmulator('127.0.0.1', 9099);
-    // Auto sign-in test user for local development to ensure ID token is present
+  if (localHosts.any((h) => apiBase.contains(h))) {
     try {
+      FirebaseAuth.instance.useAuthEmulator('127.0.0.1', 9099);
       await AuthService().ensureSignedInForDev();
     } catch (e) {
       // ignore errors here; dev auto-signin is best-effort
     }
   }
-  // Initialize the session manager so it can observe auth state and manage
-  // inactivity-based expiry. Provide a navigatorKey so it can navigate to the
-  // login screen when the session expires.
-  final navigatorKey = GlobalKey<NavigatorState>();
-  await SessionManager.instance.init(navigatorKey: navigatorKey);
-
-  // Initialize deep link service for club sharing
-  await DeepLinkService.initialize(navigatorKey);
-
-  runApp(LiveGreenApp(navigatorKey: navigatorKey));
 }
 
 class LiveGreenApp extends StatelessWidget {

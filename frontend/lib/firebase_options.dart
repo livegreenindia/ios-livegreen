@@ -57,12 +57,13 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyCfS0WH4Wac8Li0aA8ie_A4qge7UZtbVTc',
-    appId: '1:762160532123:ios:1bd817d466458ae1d1d43e',
+    appId: '1:762160532123:ios:7d6d6ed89227396dd1d43e',
     messagingSenderId: '762160532123',
     projectId: 'livegreen-bf838',
+    databaseURL: 'https://livegreen-bf838-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'livegreen-bf838.firebasestorage.app',
-    iosClientId: '762160532123-dtu762qporvdaf06gejfkf628rhfiuel.apps.googleusercontent.com',
-    iosBundleId: 'com.example.livegreen',
+    iosClientId: '762160532123-1be1cf8dc74m2gd891glt5nh328cad6o.apps.googleusercontent.com',
+    iosBundleId: 'com.livegreen.ios',
   );
 
   static const FirebaseOptions web = FirebaseOptions(
