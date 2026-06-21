@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- HealthKit: the bundled health plugin links the framework. -->
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+
 	<!-- Sign in with Apple (App Store Guideline 4.8) -->
 	<key>com.apple.developer.applesignin</key>
 	<array>
