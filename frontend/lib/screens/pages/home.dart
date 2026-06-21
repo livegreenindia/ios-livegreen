@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import 'activity.dart';
@@ -17,12 +18,17 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  final List<Widget> _pages = const [
-    ActivityPage(),
-    ProgressPage(),
-    FeedPage(),
-    ClubsListScreen(),
-    TrekListScreen(),
+  // The Inspiration Feed is an admin-gated feature that shows an empty
+  // "not available" state for accounts without access. Hide it on iOS so the
+  // app doesn't surface an unavailable feature during review (App Store 2.1).
+  static final bool _showFeed = !Platform.isIOS;
+
+  late final List<Widget> _pages = [
+    const ActivityPage(),
+    const ProgressPage(),
+    if (_showFeed) const FeedPage(),
+    const ClubsListScreen(),
+    const TrekListScreen(),
   ];
 
   void _onItemTapped(int index) {
@@ -51,28 +57,29 @@ class _HomeScreenState extends State<HomeScreen> {
         onDestinationSelected: _onItemTapped,
         animationDuration: const Duration(milliseconds: 400),
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        destinations: const [
-          NavigationDestination(
+        destinations: [
+          const NavigationDestination(
             icon: Icon(Icons.local_activity_outlined),
             selectedIcon: Icon(Icons.local_activity),
             label: 'Activities',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.insights_outlined),
             selectedIcon: Icon(Icons.insights),
             label: 'Progress',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.spa_outlined),
-            selectedIcon: Icon(Icons.spa),
-            label: 'Feed',
-          ),
-          NavigationDestination(
+          if (_showFeed)
+            const NavigationDestination(
+              icon: Icon(Icons.spa_outlined),
+              selectedIcon: Icon(Icons.spa),
+              label: 'Feed',
+            ),
+          const NavigationDestination(
             icon: Icon(Icons.groups_outlined),
             selectedIcon: Icon(Icons.groups),
             label: 'Clubs',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.explore_outlined),
             selectedIcon: Icon(Icons.explore),
             label: 'Explorer',

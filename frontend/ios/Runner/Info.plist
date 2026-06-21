@@ -65,10 +65,6 @@
 		<string>Livegreen uses your location in the background to continuously track ongoing treks.</string>
 		<key>NSLocationAlwaysUsageDescription</key>
 		<string>Livegreen uses your location in the background to continuously track ongoing treks.</string>
-		<key>NSHealthShareUsageDescription</key>
-		<string>Livegreen reads health data like steps, calories, and heart rate to track your fitness progress.</string>
-		<key>NSHealthUpdateUsageDescription</key>
-		<string>Livegreen saves workout and activity data to Apple Health.</string>
 		<key>NSMotionUsageDescription</key>
 		<string>Livegreen uses motion sensors to detect physical activity and step count.</string>
 

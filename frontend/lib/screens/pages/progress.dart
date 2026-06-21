@@ -1868,8 +1868,9 @@ class _ProgressPageState extends State<ProgressPage>
                           ],
                         ),
                       ),
-                      // Quick access: open Health Connect screen
-                      IconButton(
+                      // Quick access: open Health Connect screen (Android only)
+                      if (defaultTargetPlatform != TargetPlatform.iOS)
+                        IconButton(
                         tooltip: 'Health Connect',
                         icon: const Icon(Icons.favorite, size: 22),
                         color: isDark ? Colors.white70 : Colors.black54,
@@ -2102,6 +2103,12 @@ class _ProgressPageState extends State<ProgressPage>
 
   /// Build Health Connect section with health metrics
   Widget _buildHealthConnectSection(BuildContext context) {
+    // Health Connect is implemented for Android only (HealthConnectService
+    // reports "only available on Android" on iOS). Hide it on iOS so the app
+    // doesn't surface a non-functional feature (App Store 2.1 / 2.3.6 / 2.5.1).
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return const SizedBox.shrink();
+    }
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
@@ -2892,6 +2899,12 @@ class _ProgressPageState extends State<ProgressPage>
 
   /// Build social media usage breakdown below main digital wellbeing card
   Widget _buildSocialMediaBreakdown(BuildContext context) {
+    // Digital Wellness / Screen Control relies on Android UsageStats and the
+    // Accessibility service for app-blocking — neither exists on iOS. Hide the
+    // whole section on iOS (App Store Guidelines 2.5.1 / 2.3.6).
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return const SizedBox.shrink();
+    }
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Show card even if empty, with permission prompt or "no data" message
