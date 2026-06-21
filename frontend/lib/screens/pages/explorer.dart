@@ -9,6 +9,7 @@ import 'package:flutter_sound/flutter_sound.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../utils/share_helper.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
 import 'dart:io';
 import 'dart:async';
@@ -1379,7 +1380,7 @@ ${image.conservation.isNotEmpty ? image.conservation : _parseAIResponse(image.an
 📱 NatureLens App''';
 
       // Share the text and image
-      await Share.shareXFiles(
+      await ShareHelper.shareFiles(
         [
           XFile(image.imagePath,
               name:
@@ -1413,7 +1414,7 @@ ${image.conservation.isNotEmpty ? image.conservation : _parseAIResponse(image.an
 🔬 Powered by Google Gemini AI
 📱 NatureLens App''';
 
-        await Share.share(
+        await ShareHelper.shareText(
           shareText,
           subject: 'NatureLens AI - ${image.category} Discovery',
         );

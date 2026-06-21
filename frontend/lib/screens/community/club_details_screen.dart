@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../utils/share_helper.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -35,7 +36,7 @@ Join us on LiveGreen:
 $clubLink
 ''';
     
-    Share.share(shareText);
+    ShareHelper.shareText(shareText);
   }
 
   // Helper to add event to Google Calendar
@@ -1033,7 +1034,7 @@ ${event.content}
 🌱 Join us at ${_club?.name ?? ''}!
 $eventLink
 ''';
-                    Share.share(shareText, subject: 'LiveGreen Club Event');
+                    ShareHelper.shareText(shareText, subject: 'LiveGreen Club Event');
                   },
                 ),
               ],
@@ -1120,7 +1121,7 @@ $eventLink
 ${activity.content}
 
 ${_club?.location ?? ''}''';
-                      Share.share(shareText, subject: 'LiveGreen Club Event');
+                      ShareHelper.shareText(shareText, subject: 'LiveGreen Club Event');
                     },
                   ),
                 ],

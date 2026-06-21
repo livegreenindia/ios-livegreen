@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../utils/share_helper.dart';
 
 class ShareImageService {
   /// Captures the widget encapsulated by the [GlobalKey] as an image and shares it.
@@ -42,16 +43,16 @@ class ShareImageService {
         await file.writeAsBytes(buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes));
         
         // Share via system share sheet
-        await Share.shareXFiles(
-          [XFile(file.path)], 
-          subject: subject, 
+        await ShareHelper.shareFiles(
+          [XFile(file.path)],
+          subject: subject,
           text: text
         );
       }
     } catch (e) {
       debugPrint("Error capturing and sharing image: $e");
       // Fallback: Just share the text if image generation fails
-      await Share.share(text, subject: subject);
+      await ShareHelper.shareText(text, subject: subject);
     }
   }
 }

@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../utils/share_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:camera/camera.dart';
 import '../../services/api.dart';
@@ -2486,7 +2487,7 @@ Join me on LiveGreen and start your wellness journey today!
 
 #LiveGreen #Wellness #HealthyLiving #PersonalGrowth''';
 
-    Share.share(shareText, subject: 'I completed an activity on LiveGreen!');
+    ShareHelper.shareText(shareText, subject: 'I completed an activity on LiveGreen!');
   }
 
   // ============== MBSR BREATHING EXERCISE METHODS ==============

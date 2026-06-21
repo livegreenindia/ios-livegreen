@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
+import '../utils/share_helper.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -1239,7 +1240,7 @@ class CompletionScreen extends StatelessWidget {
 
   Future<void> _shareMission() async {
     try {
-      await Share.share(
+      await ShareHelper.shareText(
         'I just completed a focus session on LiveGreen: "$mission" 🎯\n\n'
         'Completed 4 focus sessions using binaural beats for deep concentration! 🧠✨\n\n'
         'Join me on LiveGreen: https://play.google.com/store/apps/details?id=com.livegreen.app',

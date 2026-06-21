@@ -7,6 +7,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../utils/share_helper.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
 import '../../theme/app_theme.dart';
@@ -500,7 +501,7 @@ class _TrekDetailsScreenState extends State<TrekDetailsScreen> {
               IconButton(
                 icon: const Icon(Icons.share, color: Colors.white),
                 onPressed: () {
-                  Share.share(
+                  ShareHelper.shareText(
                     '${widget.trek.title}\n\n'
                     '${widget.trek.description}\n\n'
                     'Distance: ${widget.trek.formattedDistance}\n'

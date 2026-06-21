@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../utils/share_helper.dart';
 import '../../theme/app_theme.dart';
 import '../../models/trek.dart';
 import '../../services/trek_service.dart';
@@ -243,7 +244,7 @@ class _TrackCard extends StatelessWidget {
         ? (track.distance / 1000) / (duration.inSeconds / 3600)
         : 0;
     
-    Share.share(
+    ShareHelper.shareText(
       '🏃 Trek Completed! 🏃\n\n'
       '📍 ${track.title ?? "My Trek"}\n\n'
       '📏 Distance: ${_formatDistance(track.distance)}\n'
