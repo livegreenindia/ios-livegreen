@@ -1,6 +1,9 @@
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../config/routes.dart';
@@ -645,6 +648,64 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
+
+                    // Sign in with Apple (required on iOS by App Store
+                    // Guideline 4.8 whenever Google Sign-In is offered)
+                    if (!kIsWeb && Platform.isIOS) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: SignInWithAppleButton(
+                          style: isDark
+                              ? SignInWithAppleButtonStyle.white
+                              : SignInWithAppleButtonStyle.black,
+                          borderRadius:
+                              BorderRadius.circular(AppRadius.md),
+                          onPressed: () async {
+                            showDialog(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (_) => const Center(
+                                  child: CircularProgressIndicator()),
+                            );
+                            try {
+                              await AuthService().signInWithApple();
+                              if (!context.mounted) return;
+                              Navigator.of(context).pop(); // remove loading
+                              await _checkProfileAndNavigate();
+                            } catch (e) {
+                              if (!context.mounted) return;
+                              Navigator.of(context).pop();
+                              final code = e is FirebaseAuthException
+                                  ? e.code
+                                  : '';
+                              if (code == 'sign_in_canceled') return;
+                              final errorMessage =
+                                  ErrorHandler.getAuthErrorMessage(e);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Row(
+                                    children: [
+                                      const Icon(Icons.error_outline,
+                                          color: Colors.white),
+                                      const SizedBox(width: 12),
+                                      Expanded(child: Text(errorMessage)),
+                                    ],
+                                  ),
+                                  backgroundColor: AppColors.error,
+                                  behavior: SnackBarBehavior.floating,
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          AppRadius.md)),
+                                  duration: const Duration(seconds: 5),
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
 
                     const SizedBox(height: 24),
 

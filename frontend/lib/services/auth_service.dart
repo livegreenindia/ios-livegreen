@@ -1,5 +1,10 @@
+import 'dart:convert';
+import 'dart:math';
+import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 // Read an optional web client id passed via --dart-define=GOOGLE_CLIENT_ID=...
@@ -7,6 +12,100 @@ const _webGoogleClientId = String.fromEnvironment('GOOGLE_CLIENT_ID', defaultVal
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  /// Generate a cryptographically secure random nonce for Sign in with Apple.
+  String _generateNonce([int length = 32]) {
+    const charset =
+        '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
+    final random = Random.secure();
+    return List.generate(length, (_) => charset[random.nextInt(charset.length)])
+        .join();
+  }
+
+  String _sha256ofString(String input) {
+    final bytes = utf8.encode(input);
+    return sha256.convert(bytes).toString();
+  }
+
+  /// Sign in using Apple (iOS). Required by App Store Guideline 4.8 whenever a
+  /// third-party login such as Google is offered.
+  Future<UserCredential> signInWithApple() async {
+    try {
+      final rawNonce = _generateNonce();
+      final hashedNonce = _sha256ofString(rawNonce);
+
+      final appleCredential = await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+        nonce: hashedNonce,
+      );
+
+      final oauthCredential = OAuthProvider('apple.com').credential(
+        idToken: appleCredential.identityToken,
+        rawNonce: rawNonce,
+      );
+
+      final userCredential = await _auth.signInWithCredential(oauthCredential);
+
+      // Apple only returns the name on the very first authorization. Persist it
+      // to the Firebase profile if we received one and none is set yet.
+      final fullName = [
+        appleCredential.givenName,
+        appleCredential.familyName,
+      ].where((p) => p != null && p.isNotEmpty).join(' ');
+      final user = userCredential.user;
+      if (fullName.isNotEmpty &&
+          user != null &&
+          (user.displayName == null || user.displayName!.isEmpty)) {
+        await user.updateDisplayName(fullName);
+        await user.reload();
+      }
+      return userCredential;
+    } on SignInWithAppleAuthorizationException catch (e) {
+      throw FirebaseAuthException(
+        code: e.code == AuthorizationErrorCode.canceled
+            ? 'sign_in_canceled'
+            : 'apple_sign_in_failed',
+        message: 'Apple sign in failed: ${e.message}',
+      );
+    } catch (e) {
+      if (e is FirebaseAuthException) rethrow;
+      throw FirebaseAuthException(
+        code: 'apple_sign_in_failed',
+        message: 'Apple sign in failed: ${e.toString()}',
+      );
+    }
+  }
+
+  /// Permanently delete the signed-in user's account and associated data.
+  /// Required by App Store Guideline 5.1.1(v).
+  Future<void> deleteAccount() async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'no-current-user',
+        message: 'No signed-in user to delete.',
+      );
+    }
+    final uid = user.uid;
+
+    // Best-effort removal of the user's Firestore document.
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(uid).delete();
+    } catch (_) {
+      // Non-fatal: continue with auth account deletion.
+    }
+
+    // Deleting the auth account may require a recent login; the caller surfaces
+    // the 'requires-recent-login' error so the user can re-authenticate.
+    await user.delete();
+
+    try {
+      await GoogleSignIn().signOut();
+    } catch (_) {}
+  }
 
   /// Sign in using Google (works for mobile and web via the google_sign_in package)
   Future<UserCredential> signInWithGoogle() async {

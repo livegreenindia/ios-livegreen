@@ -12,6 +12,7 @@ import '../../services/profile_service.dart';
 import '../../services/auth_service.dart';
 import '../../config/routes.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/platform_payments.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -217,6 +218,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
                 // Logout Button
                 _buildLogoutButton(context),
+                const SizedBox(height: 12),
+
+                // Delete Account Button (App Store Guideline 5.1.1)
+                _buildDeleteAccountButton(context),
               ],
             ),
           ),
@@ -698,6 +703,90 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  Widget _buildDeleteAccountButton(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: TextButton.icon(
+        onPressed: () => _showDeleteAccountDialog(context),
+        icon: const Icon(Icons.delete_forever_outlined, size: 20),
+        label: Text(
+          'Delete Account',
+          style: GoogleFonts.manrope(fontWeight: FontWeight.w600, fontSize: 15),
+        ),
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.error,
+        ),
+      ),
+    );
+  }
+
+  void _showDeleteAccountDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          'Delete Account',
+          style: GoogleFonts.manrope(fontWeight: FontWeight.w700),
+        ),
+        content: Text(
+          'This permanently deletes your account and all associated data. '
+          'This action cannot be undone. Continue?',
+          style: GoogleFonts.manrope(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text('Cancel', style: GoogleFonts.manrope()),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              await _performAccountDeletion(context);
+            },
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            child: Text('Delete', style: GoogleFonts.manrope()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _performAccountDeletion(BuildContext context) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      await AuthService().deleteAccount();
+      if (!context.mounted) return;
+      Navigator.pop(context); // remove loading
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        AppRoutes.login,
+        (route) => false,
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      Navigator.pop(context); // remove loading
+      final isRecentLogin = e is FirebaseAuthException &&
+          e.code == 'requires-recent-login';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isRecentLogin
+                ? 'For your security, please sign out and sign in again, then retry deleting your account.'
+                : 'Could not delete account: ${e.toString()}',
+          ),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    }
+  }
+
   Widget _planCard(BuildContext context, bool isPremium) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -734,54 +823,58 @@ class _ProfilePageState extends State<ProfilePage> {
               color: isDark ? Colors.white70 : Colors.black87,
             ),
           ),
-          const SizedBox(height: 16),
-          Divider(color: isDark ? Colors.white10 : Colors.black12),
-          const SizedBox(height: 16),
-          Text(
-            "Support LiveGreen",
-            style: GoogleFonts.manrope(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white70 : Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            "Love what we're building? Your voluntary contribution helps us keep improving LiveGreen for everyone.",
-            style: GoogleFonts.manrope(
-              fontSize: 13,
-              color: isDark ? Colors.white54 : Colors.black54,
-            ),
-          ),
-          const SizedBox(height: 16),
-          GestureDetector(
-            onTap: () async {
-              // Open the payment flow for voluntary contributions
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      const SubscriptionPaymentPage(isDonation: true),
-                ),
-              );
-            },
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: primaryColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                "💚 Support Us – ₹99",
-                style: GoogleFonts.manrope(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
+          // Voluntary donation via Razorpay — hidden on iOS to comply with
+          // App Store Guideline 3.1.1 (digital payments must use Apple IAP).
+          if (!paymentsDisabled) ...[
+            const SizedBox(height: 16),
+            Divider(color: isDark ? Colors.white10 : Colors.black12),
+            const SizedBox(height: 16),
+            Text(
+              "Support LiveGreen",
+              style: GoogleFonts.manrope(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white70 : Colors.black87,
               ),
             ),
-          ),
+            const SizedBox(height: 8),
+            Text(
+              "Love what we're building? Your voluntary contribution helps us keep improving LiveGreen for everyone.",
+              style: GoogleFonts.manrope(
+                fontSize: 13,
+                color: isDark ? Colors.white54 : Colors.black54,
+              ),
+            ),
+            const SizedBox(height: 16),
+            GestureDetector(
+              onTap: () async {
+                // Open the payment flow for voluntary contributions
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        const SubscriptionPaymentPage(isDonation: true),
+                  ),
+                );
+              },
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: primaryColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  "💚 Support Us – ₹99",
+                  style: GoogleFonts.manrope(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

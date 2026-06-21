@@ -6,6 +6,12 @@
 	<key>com.apple.developer.healthkit</key>
 	<true/>
 
+	<!-- Sign in with Apple (App Store Guideline 4.8) -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+
 	<!-- Push Notifications for Firebase Cloud Messaging -->
 	<key>aps-environment</key>
 	<string>production</string>

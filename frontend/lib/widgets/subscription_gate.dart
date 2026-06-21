@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../services/subscription_service.dart';
 import '../screens/premium/subscriptionpaymentpage.dart';
 import '../theme/app_theme.dart';
+import '../utils/platform_payments.dart';
 
 // Returns the annual price label for the device locale, e.g. "₹199" or "$2.99"
 String _localAnnualPrice() {
@@ -55,6 +56,9 @@ class SubscriptionGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // On iOS all features are free (no Razorpay paywall) — never gate.
+    if (paymentsDisabled) return child;
+
     return Consumer<SubscriptionService>(
       builder: (context, subs, _) {
         // While loading, render children normally (avoid flash of locked UI)
@@ -296,6 +300,9 @@ class SubscriptionTrialBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // On iOS there is no paid tier — hide the trial banner entirely.
+    if (paymentsDisabled) return const SizedBox.shrink();
+
     return Consumer<SubscriptionService>(
       builder: (context, subs, _) {
         // Only show during active trial
