@@ -47,16 +47,6 @@ post_install do |installer|
       # Required for Xcode 15+ and some pods
       config.build_settings['ENABLE_BITCODE'] = 'NO'
 
-      # Exclude razorpay_flutter source files so the Razorpay binary payment
-      # frameworks are not referenced by the compiler or linked into the app.
-      # A stub RazorpayFlutterPlugin in Runner/RazorpayStub.m satisfies
-      # GeneratedPluginRegistrant. This prevents App Store rejection under
-      # Guideline 2.5.4 (alternative payment SDK) and 3.1.1 (IAP requirement).
-      if target.name == 'razorpay_flutter'
-        config.build_settings['EXCLUDED_SOURCE_FILE_NAMES'] = '$(SRCROOT)/**'
-        config.build_settings['FRAMEWORK_SEARCH_PATHS'] = ''
-        config.build_settings['OTHER_LDFLAGS'] = '$(inherited)'
-      end
     end
   end
 
