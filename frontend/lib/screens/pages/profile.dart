@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../health_connect_screen.dart';
 import '../premium/subscriptionpaymentpage.dart';
 import '../legal/privacy_policy_screen.dart';
@@ -280,6 +281,22 @@ class _ProfilePageState extends State<ProfilePage> {
                       builder: (_) => const TermsOfServiceScreen(),
                     ),
                   );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.support_agent_outlined),
+                title: const Text('Contact Support'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final uri = Uri(
+                    scheme: 'mailto',
+                    path: 'apps@livegreenindia.com',
+                    query: 'subject=LiveGreen Support',
+                  );
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri);
+                  }
                 },
               ),
               ListTile(

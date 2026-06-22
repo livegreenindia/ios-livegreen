@@ -107,40 +107,31 @@ class AuthService {
     } catch (_) {}
   }
 
-  /// Sign in using Google (works for mobile and web via the google_sign_in package)
+  /// Sign in using Google via Firebase's web OAuth flow (ASWebAuthenticationSession).
+  ///
+  /// Using signInWithProvider instead of the google_sign_in package's native
+  /// GIDSignIn flow because GIDSignIn on iPad triggers an
+  /// NSInternalInconsistencyException (UIPopoverPresentationController without
+  /// a sourceView) that crashes the app with SIGABRT. Firebase's web-based
+  /// OAuth flow uses ASWebAuthenticationSession which presents as a modal
+  /// sheet on all devices — no popover, no crash.
   Future<UserCredential> signInWithGoogle() async {
     try {
-      // Initialize GoogleSignIn with minimal scopes
-      final googleSignIn = GoogleSignIn(
-        scopes: ['email', 'profile'],
-        clientId: kIsWeb && _webGoogleClientId.isNotEmpty ? _webGoogleClientId : null,
-      );
-
-      // Attempt to sign in
-      final googleUser = await googleSignIn.signIn();
-      if (googleUser == null) {
+      final provider = GoogleAuthProvider()
+        ..addScope('email')
+        ..addScope('profile');
+      return await _auth.signInWithProvider(provider);
+    } on FirebaseAuthException catch (e) {
+      // Normalize cancellation codes produced by different Firebase SDK versions
+      if (e.code == 'web-context-canceled' ||
+          e.code == 'canceled' ||
+          e.code == 'user-cancelled') {
         throw FirebaseAuthException(
           code: 'sign_in_canceled',
           message: 'Google sign in was canceled by the user',
         );
       }
-
-      // Get auth details
-      final googleAuth = await googleUser.authentication;
-      if (googleAuth.accessToken == null) {
-        throw FirebaseAuthException(
-          code: 'missing_access_token',
-          message: 'No access token received from Google',
-        );
-      }
-
-      // Create and use Firebase credential
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-      
-      return await _auth.signInWithCredential(credential);
+      rethrow;
     } catch (e) {
       if (e is FirebaseAuthException) rethrow;
       throw FirebaseAuthException(

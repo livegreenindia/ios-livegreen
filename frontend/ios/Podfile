@@ -46,6 +46,48 @@ post_install do |installer|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
       # Required for Xcode 15+ and some pods
       config.build_settings['ENABLE_BITCODE'] = 'NO'
+
+      # Exclude razorpay_flutter source files so the Razorpay binary payment
+      # frameworks are not referenced by the compiler or linked into the app.
+      # A stub RazorpayFlutterPlugin in Runner/RazorpayStub.m satisfies
+      # GeneratedPluginRegistrant. This prevents App Store rejection under
+      # Guideline 2.5.4 (alternative payment SDK) and 3.1.1 (IAP requirement).
+      if target.name == 'razorpay_flutter'
+        config.build_settings['EXCLUDED_SOURCE_FILE_NAMES'] = '$(SRCROOT)/**'
+        config.build_settings['FRAMEWORK_SEARCH_PATHS'] = ''
+        config.build_settings['OTHER_LDFLAGS'] = '$(inherited)'
+      end
     end
+  end
+
+  # Strip Razorpay linker flags and framework search paths from the aggregated
+  # Pods-Runner xcconfig files so the Razorpay .framework files are not
+  # linked into the Runner binary or embedded in the .ipa.
+  ['debug', 'release', 'profile'].each do |cfg_name|
+    xcconfig_path = File.join(
+      installer.sandbox.root,
+      'Target Support Files', 'Pods-Runner',
+      "Pods-Runner.#{cfg_name}.xcconfig"
+    )
+    next unless File.exist?(xcconfig_path)
+    content = File.read(xcconfig_path)
+    # Remove -framework "RazorpayXxx" entries
+    content = content.gsub(/ ?-framework "Razorpay[^"]*"/, '')
+    # Remove Razorpay framework search path entries
+    content = content.gsub(/ ?"[^"]*razorpay_flutter[^"]*\/Frameworks[^"]*"/, '')
+    File.write(xcconfig_path, content)
+  end
+
+  # Remove Razorpay from the generated frameworks embed script so that the
+  # Razorpay .framework bundles are not copied into Runner.app/Frameworks/.
+  frameworks_script = File.join(
+    installer.sandbox.root,
+    'Target Support Files', 'Pods-Runner',
+    'Pods-Runner-frameworks.sh'
+  )
+  if File.exist?(frameworks_script)
+    content = File.read(frameworks_script)
+    content = content.lines.reject { |l| l.match?(/[Rr]azorpay/i) }.join
+    File.write(frameworks_script, content)
   end
 end

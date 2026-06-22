@@ -75,12 +75,47 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Top banner image
-              Image.network(
-                "https://lh3.googleusercontent.com/aida-public/AB6AXuD9qjk1riHArzwwlTWYeNyZYpp_ovT1UZYW3PvHK4YYangVlRLzRmKTFsefac1OfHiR5ArbZjS41EtXsCyXVj1fx_-kFWlJP2KmNJPGh2WqI5XI6nokwNqF167nxu4VihNE-lzc0CxOlSFS1J0vRIce57iaCpfQUXgBkylxveRdy16d1T5GYYUdi-3Z8x7Sy38BZeZaoQ1tIyzB-a0EXq52J5WJ0XnMaH1vk2RE1XhoaHRnxZI51KQInsAU3x2qle9frs_03mTxjC0",
-                fit: BoxFit.cover,
+              // Top banner — bundled asset, no network dependency
+              Container(
                 width: double.infinity,
                 height: 220,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF019863), Color(0xFF02C077)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.asset(
+                        'assets/logo/lovegreen_logo.jpg',
+                        width: 80,
+                        height: 80,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'LiveGreen',
+                      style: GoogleFonts.manrope(
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Text(
+                      'Live Green, Live Well',
+                      style: GoogleFonts.manrope(
+                        fontSize: 13,
+                        color: Colors.white.withOpacity(0.85),
+                      ),
+                    ),
+                  ],
+                ),
               ),
 
               Padding(
