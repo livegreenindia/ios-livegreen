@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:io' show Platform;
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -107,22 +108,33 @@ class AuthService {
     } catch (_) {}
   }
 
-  /// Sign in using Google via Firebase's web OAuth flow (ASWebAuthenticationSession).
-  ///
-  /// Using signInWithProvider instead of the google_sign_in package's native
-  /// GIDSignIn flow because GIDSignIn on iPad triggers an
-  /// NSInternalInconsistencyException (UIPopoverPresentationController without
-  /// a sourceView) that crashes the app with SIGABRT. Firebase's web-based
-  /// OAuth flow uses ASWebAuthenticationSession which presents as a modal
-  /// sheet on all devices — no popover, no crash.
   Future<UserCredential> signInWithGoogle() async {
     try {
-      final provider = GoogleAuthProvider()
-        ..addScope('email')
-        ..addScope('profile');
-      return await _auth.signInWithProvider(provider);
+      // iOS: use Firebase's web OAuth flow (ASWebAuthenticationSession) to avoid
+      // the UIPopoverPresentationController crash on iPad (SIGABRT / NSException).
+      // Android: use native GIDSignIn for the account-picker sheet UX.
+      if (!kIsWeb && Platform.isIOS) {
+        final provider = GoogleAuthProvider()
+          ..addScope('email')
+          ..addScope('profile');
+        return await _auth.signInWithProvider(provider);
+      } else {
+        final googleUser = await GoogleSignIn().signIn();
+        if (googleUser == null) {
+          throw FirebaseAuthException(
+            code: 'sign_in_canceled',
+            message: 'Google sign in was canceled by the user',
+          );
+        }
+        final googleAuth = await googleUser.authentication;
+        return await _auth.signInWithCredential(
+          GoogleAuthProvider.credential(
+            accessToken: googleAuth.accessToken,
+            idToken: googleAuth.idToken,
+          ),
+        );
+      }
     } on FirebaseAuthException catch (e) {
-      // Normalize cancellation codes produced by different Firebase SDK versions
       if (e.code == 'web-context-canceled' ||
           e.code == 'canceled' ||
           e.code == 'user-cancelled') {
