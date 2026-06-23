@@ -35,27 +35,6 @@ workflows:
           cd frontend
           flutter pub get
 
-      - name: Stub Razorpay iOS sources
-        script: |
-          set -e
-          # Overwrite razorpay_flutter Swift/ObjC sources with empty stubs so
-          # Xcode never compiles 'import Razorpay' and the binary frameworks are
-          # not linked or embedded. Runner/RazorpayStub.m satisfies
-          # GeneratedPluginRegistrant. Fixes App Store rejection 2.5.4.
-          RAZORPAY_CLASSES=$(find "$HOME/.pub-cache" \
-            -path "*/razorpay_flutter-*/ios/Classes" -type d 2>/dev/null | head -1)
-          if [ -n "$RAZORPAY_CLASSES" ]; then
-            echo "Stubbing Razorpay sources at: $RAZORPAY_CLASSES"
-            for f in "$RAZORPAY_CLASSES"/*.swift; do
-              [ -f "$f" ] && printf '// Razorpay disabled on iOS\n' > "$f"
-            done
-            for f in "$RAZORPAY_CLASSES"/*.m; do
-              [ -f "$f" ] && printf '// Razorpay disabled on iOS\n' > "$f"
-            done
-          else
-            echo "razorpay_flutter Classes dir not found, skipping stub"
-          fi
-
       - name: Install CocoaPods
         script: |
           set -e
