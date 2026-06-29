@@ -559,22 +559,20 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
       child: Column(
         children: [
-          // Health Connect is Android-only; hide on iOS (App Store 2.3.6 / 2.5.1).
-          if (!paymentsDisabled)
-            _buildSettingsTile(
-              context,
-              Icons.favorite_outline,
-              'Health Connect',
-              'Sync health data',
-              primaryColor,
-              onTap: () {
-                final user = FirebaseAuth.instance.currentUser;
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => HealthConnectScreen(uid: user?.uid ?? '')),
-                );
-              },
-            ),
+          _buildSettingsTile(
+            context,
+            Icons.favorite_outline,
+            paymentsDisabled ? 'Apple Health' : 'Health Connect',
+            'Sync health data',
+            primaryColor,
+            onTap: () {
+              final user = FirebaseAuth.instance.currentUser;
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => HealthConnectScreen(uid: user?.uid ?? '')),
+              );
+            },
+          ),
           Divider(
             height: 1,
             indent: 56,

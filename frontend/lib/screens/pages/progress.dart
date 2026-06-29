@@ -2101,15 +2101,11 @@ class _ProgressPageState extends State<ProgressPage>
     );
   }
 
-  /// Build Health Connect section with health metrics
+  /// Build health section — shows Apple Health on iOS, Health Connect on Android.
   Widget _buildHealthConnectSection(BuildContext context) {
-    // Health Connect is implemented for Android only (HealthConnectService
-    // reports "only available on Android" on iOS). Hide it on iOS so the app
-    // doesn't surface a non-functional feature (App Store 2.1 / 2.3.6 / 2.5.1).
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
-      return const SizedBox.shrink();
-    }
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isIOS = defaultTargetPlatform == TargetPlatform.iOS;
+    final healthLabel = isIOS ? 'Apple Health' : 'Health Connect';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2137,7 +2133,7 @@ class _ProgressPageState extends State<ProgressPage>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Health Connect',
+                      healthLabel,
                       style: GoogleFonts.manrope(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -2220,7 +2216,7 @@ class _ProgressPageState extends State<ProgressPage>
             const SizedBox(height: 16),
             Center(
               child: Text(
-                'Connect Health Connect to see your health metrics',
+                'Connect $healthLabel to see your health metrics',
                 style: GoogleFonts.manrope(
                   fontSize: 13,
                   color: Colors.grey[500],

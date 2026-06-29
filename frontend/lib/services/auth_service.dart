@@ -32,6 +32,17 @@ class AuthService {
   /// third-party login such as Google is offered.
   Future<UserCredential> signInWithApple() async {
     try {
+      if (!kIsWeb && Platform.isIOS) {
+        // Use Firebase's signInWithProvider which presents via ASWebAuthenticationSession.
+        // This is safe on iPad — avoids the UIPopoverPresentationController crash
+        // that affects native ASAuthorizationController on iPad.
+        final provider = OAuthProvider('apple.com')
+          ..addScope('email')
+          ..addScope('name');
+        return await _auth.signInWithProvider(provider);
+      }
+
+      // Android / web fallback: use the sign_in_with_apple package with a nonce.
       final rawNonce = _generateNonce();
       final hashedNonce = _sha256ofString(rawNonce);
 
