@@ -67,55 +67,52 @@ class HealthConnectService {
     }
   }
 
+  /// Native health plugin calls go through a platform channel — if the OS-side
+  /// call ever hangs (seen on iOS HealthKit), an un-timed-out await freezes the
+  /// whole Flutter UI thread. Every call into `_health` is bounded so the UI
+  /// can always recover and show an error instead of hanging indefinitely.
+  static const _nativeCallTimeout = Duration(seconds: 8);
+
   /// Request authorization to access health data
   Future<bool> requestAuthorization() async {
     _notifyProgress('Checking health permissions...', 0.1, 1, 4);
-    
+
     try {
       // Configure the health plugin
-      await _health.configure();
-      
-      _notifyProgress('Checking existing permissions...', 0.3, 2, 4);
-      
-      // First check if we already have permissions
+      await _health.configure().timeout(_nativeCallTimeout);
+
+      _notifyProgress('Requesting authorization...', 0.5, 2, 4);
+
+      // Go straight to requestAuthorization — this is the only call that
+      // actually triggers the OS permission prompt (HealthKit on iOS,
+      // Health Connect on Android). hasPermissions() is read-only and on iOS
+      // HealthKit deliberately returns an indeterminate result for read
+      // scopes, so checking it first never reveals whether we're authorized.
       final permissions = _healthDataTypes.map((_) => HealthDataAccess.READ).toList();
-      final hasPermissions = await _health.hasPermissions(
-        _healthDataTypes,
-        permissions: permissions,
-      );
-      
-      if (hasPermissions == true) {
-        // Already authorized
-        _isAuthorized = true;
-        _notifyProgress('Already authorized!', 1.0, 4, 4);
-        if (kDebugMode) {
-          debugPrint('[HealthConnect] Already has permissions');
-        }
-        return true;
-      }
-      
-      _notifyProgress('Requesting authorization...', 0.6, 3, 4);
-      
-      // Request authorization for health data types
-      final authorized = await _health.requestAuthorization(
-        _healthDataTypes,
-        permissions: permissions,
-      );
-      
+      final authorized = await _health
+          .requestAuthorization(_healthDataTypes, permissions: permissions)
+          .timeout(_nativeCallTimeout);
+
       _isAuthorized = authorized;
-      
+
       _notifyProgress(
         authorized ? 'Authorization granted!' : 'Authorization denied',
         1.0,
         4,
         4,
       );
-      
+
       if (kDebugMode) {
         debugPrint('[HealthConnect] Authorization result: $authorized');
       }
-      
+
       return authorized;
+    } on TimeoutException {
+      if (kDebugMode) {
+        debugPrint('[HealthConnect] Authorization timed out');
+      }
+      _isAuthorized = false;
+      return false;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[HealthConnect] Authorization error: $e');
@@ -129,14 +126,18 @@ class HealthConnectService {
   /// Check if we have health permissions without requesting
   Future<bool> checkPermissions() async {
     try {
-      await _health.configure();
+      await _health.configure().timeout(_nativeCallTimeout);
       final permissions = _healthDataTypes.map((_) => HealthDataAccess.READ).toList();
-      final hasPermissions = await _health.hasPermissions(
-        _healthDataTypes,
-        permissions: permissions,
-      );
+      final hasPermissions = await _health
+          .hasPermissions(_healthDataTypes, permissions: permissions)
+          .timeout(_nativeCallTimeout);
       _isAuthorized = hasPermissions == true;
       return _isAuthorized;
+    } on TimeoutException {
+      if (kDebugMode) {
+        debugPrint('[HealthConnect] Check permissions timed out');
+      }
+      return false;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[HealthConnect] Check permissions error: $e');
@@ -245,11 +246,13 @@ class HealthConnectService {
 
     try {
       // Get all health data points
-      final healthData = await _health.getHealthDataFromTypes(
-        types: _healthDataTypes,
-        startTime: start,
-        endTime: end,
-      );
+      final healthData = await _health
+          .getHealthDataFromTypes(
+            types: _healthDataTypes,
+            startTime: start,
+            endTime: end,
+          )
+          .timeout(_nativeCallTimeout);
 
       _notifyProgress('Processing data...', 0.6, 3, 5);
 

@@ -33,23 +33,25 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
     _checkHealthConnectStatus();
   }
 
+  String get _healthServiceName => Platform.isIOS ? 'Apple Health' : 'Health Connect';
+
   Future<void> _checkHealthConnectStatus() async {
     setState(() {
       _isLoading = true;
-      _statusMessage = 'Checking Health Connect availability...';
+      _statusMessage = 'Checking $_healthServiceName availability...';
     });
 
     try {
       if (Platform.isAndroid) {
         _isHealthConnectAvailable = await _service.isHealthConnectAvailable();
-        
+
         if (!_isHealthConnectAvailable) {
           _statusMessage = 'Health Connect is not installed on this device';
         } else {
           // Check if we already have permissions
           final hasPermissions = await _service.checkPermissions();
           _isConnected = hasPermissions;
-          
+
           if (_isConnected) {
             _statusMessage = 'Connected to Health Connect';
             await _fetchHealthData();
@@ -58,12 +60,15 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
           }
         }
       } else {
-        _statusMessage = 'Health Connect is only available on Android';
-        _isHealthConnectAvailable = false;
+        // iOS: HealthKit is always available on-device. Read-permission state
+        // is deliberately indeterminate until requestAuthorization() is
+        // called, so there's nothing to pre-check — just prompt to connect.
+        _isHealthConnectAvailable = true;
+        _statusMessage = 'Tap "Connect" to link Apple Health';
       }
     } catch (e) {
       _error = e.toString();
-      _statusMessage = 'Error checking Health Connect status';
+      _statusMessage = 'Error checking $_healthServiceName status';
     } finally {
       setState(() => _isLoading = false);
     }
@@ -77,9 +82,25 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
     });
 
     try {
-      // First check if already authorized
+      if (Platform.isIOS) {
+        // requestAuthorization() is the only call that actually triggers the
+        // native HealthKit permission prompt — checking hasPermissions()
+        // first is pointless on iOS since it can't reveal read-grant state.
+        _statusMessage = 'Requesting Apple Health access...';
+        final authorized = await _service.requestAuthorization();
+        if (authorized) {
+          _isConnected = true;
+          _statusMessage = 'Connected!';
+          await _fetchHealthData();
+        } else {
+          _statusMessage = 'Apple Health access was not granted';
+        }
+        return;
+      }
+
+      // Android: First check if already authorized
       final hasPermissions = await _service.checkPermissions();
-      
+
       if (hasPermissions) {
         // Already have permissions, just fetch data
         _isConnected = true;
@@ -87,7 +108,7 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
         await _fetchHealthData();
         return;
       }
-      
+
       // Not authorized, open Health Connect permission screen
       _statusMessage = 'Opening Health Connect permissions...';
       await _service.openHealthConnectPermissions();
@@ -143,7 +164,7 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Health Connect',
+          _healthServiceName,
           style: GoogleFonts.manrope(fontWeight: FontWeight.w600),
         ),
         elevation: 0,
@@ -183,7 +204,7 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
             
             // Title
             Text(
-              'Health Connect',
+              _healthServiceName,
               textAlign: TextAlign.center,
               style: GoogleFonts.manrope(
                 fontSize: 28,
@@ -325,7 +346,7 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
               ElevatedButton.icon(
                 onPressed: _isLoading ? null : _connectHealthConnect,
                 icon: const Icon(Icons.link),
-                label: const Text('Connect Health Connect'),
+                label: Text('Connect $_healthServiceName'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
@@ -367,7 +388,7 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
                       const Icon(Icons.info_outline, color: Colors.blue, size: 20),
                       const SizedBox(width: 8),
                       Text(
-                        'About Health Connect',
+                        'About $_healthServiceName',
                         style: GoogleFonts.manrope(
                           fontWeight: FontWeight.w600,
                           color: Colors.blue[700],
@@ -377,11 +398,15 @@ class _HealthConnectScreenState extends State<HealthConnectScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Health Connect is Google\'s unified health data platform. It securely syncs data from your fitness apps and wearables including:\n\n'
-                    '• Google Fit\n'
-                    '• Samsung Health\n'
-                    '• Fitbit\n'
-                    '• And many more...',
+                    Platform.isIOS
+                        ? 'Apple Health is Apple\'s built-in health data platform. '
+                          'LiveGreen reads your steps, active energy, and walking/running '
+                          'distance from Apple Health to track your wellness progress.'
+                        : 'Health Connect is Google\'s unified health data platform. It securely syncs data from your fitness apps and wearables including:\n\n'
+                          '• Google Fit\n'
+                          '• Samsung Health\n'
+                          '• Fitbit\n'
+                          '• And many more...',
                     style: GoogleFonts.manrope(
                       fontSize: 13,
                       color: Colors.blue[800],
