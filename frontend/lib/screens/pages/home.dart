@@ -1,4 +1,3 @@
-import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import 'activity.dart';
@@ -18,10 +17,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  // The Inspiration Feed is an admin-gated feature that shows an empty
-  // "not available" state for accounts without access. Hide it on iOS so the
-  // app doesn't surface an unavailable feature during review (App Store 2.1).
-  static final bool _showFeed = !Platform.isIOS;
+  static const bool _showFeed = true;
 
   late final List<Widget> _pages = [
     const ActivityPage(),
